@@ -830,6 +830,10 @@ _RECAP_GROUP_BG = {
     "OI":              "#e5e7eb",
     "OI · k lots":     "#e5e7eb",
     "Δ 1w":            "#f9a8d4",
+    "OI %":            "#1e3a8a",
+}
+_RECAP_GROUP_TEXT = {
+    "OI %": "#ffffff",
 }
 _CHANGE_BG = "#f9a8d4"
 
@@ -845,7 +849,7 @@ _RECAP_CSS = """
 </style>
 """
 
-def _recap_html(df, signed=False, change_table=False, scroll=False, signed_groups=None):
+def _recap_html(df, signed=False, change_table=False, scroll=False, signed_groups=None, pct_groups=None):
     if df.empty: return ""
     cols = list(df.columns)
     # Build group spans
@@ -859,12 +863,20 @@ def _recap_html(df, signed=False, change_table=False, scroll=False, signed_group
     h1 = '<tr><th class="idx sub"></th>'
     for g, span in groups:
         bg = _RECAP_GROUP_BG.get(g, "#f9fafb")
-        h1 += f'<th colspan="{span}" class="grp" style="background:{bg}">{g}</th>'
+        fg = _RECAP_GROUP_TEXT.get(g, "#111827")
+        h1 += f'<th colspan="{span}" class="grp" style="background:{bg};color:{fg}">{g}</th>'
     h1 += '</tr>'
 
     # Header row 2 — sub-column names
     h2 = '<tr><th class="idx sub"></th>'
-    for c in cols: h2 += f'<th class="sub">{c[1]}</th>'
+    for c in cols:
+        g = c[0]
+        if g in _RECAP_GROUP_TEXT:
+            bg = _RECAP_GROUP_BG.get(g, "#f9fafb")
+            fg = _RECAP_GROUP_TEXT[g]
+            h2 += f'<th class="sub" style="background:{bg};color:{fg}">{c[1]}</th>'
+        else:
+            h2 += f'<th class="sub">{c[1]}</th>'
     h2 += '</tr>'
 
     # Body rows
@@ -876,9 +888,12 @@ def _recap_html(df, signed=False, change_table=False, scroll=False, signed_group
             if pd.isna(v): body += '<td>—</td>'; continue
             use_signed = signed or change_table or (
                 signed_groups and isinstance(c, tuple) and c[0] in signed_groups)
+            use_pct = pct_groups and isinstance(c, tuple) and c[0] in pct_groups
             if use_signed:
                 txt = f"{v:+.1f}"
                 cls = "rpos" if v > 0 else ("rneg" if v < 0 else "")
+            elif use_pct:
+                txt = f"{v:.1f}%"; cls = ""
             else:
                 txt = f"{v:.1f}"; cls = ""
             body += f'<td class="{cls}">{txt}</td>'
@@ -976,6 +991,8 @@ def _build_oi_df(d, report):
     def gc(name):
         return d[name].astype(float) if name in d.columns else pd.Series(0.0, index=d.index)
 
+    total_oi = gc("Total OI") / 1000
+
     if report == "CIT":
         oi_cols = {
             "Large Spec": (gc("Spec Long") + gc("Spec Short")) / 2 / 1000 + gc("Spec Spread") / 1000,
@@ -989,17 +1006,23 @@ def _build_oi_df(d, report):
             "Other":      (gc("Other Long") + gc("Other Short")) / 2 / 1000 + gc("Other Spread") / 1000,
             "Swap":       (gc("Swap Long") + gc("Swap Short")) / 2 / 1000 + gc("Swap Spread") / 1000,
             "Commercial": (gc("Producer Long") + gc("Producer Short")) / 2 / 1000,
+            "Non-Rep":    (gc("Non Rep Long") + gc("Non Rep Short")) / 2 / 1000,
         }
 
     oi_df = pd.DataFrame(oi_cols)
     oi_df.index = pd.to_datetime(d["Date"])
     oi_df = oi_df.iloc[::-1].iloc[:20]  # newest first, last 20
 
-    chg_df = oi_df.diff(-1)
+    total_s = pd.Series(total_oi.values, index=pd.to_datetime(d["Date"])).iloc[::-1].iloc[:20]
+    pct_df  = oi_df.div(total_s.values, axis=0) * 100
+    chg_df  = oi_df.diff(-1)
+
     cats = list(oi_cols.keys())
-    combined = pd.concat([oi_df, chg_df], axis=1)
+    combined = pd.concat([oi_df, pct_df, chg_df], axis=1)
     combined.columns = pd.MultiIndex.from_tuples(
-        [("OI · k lots", c) for c in cats] + [("Δ 1w", c) for c in cats]
+        [("OI · k lots", c) for c in cats] +
+        [("OI %",        c) for c in cats] +
+        [("Δ 1w",        c) for c in cats]
     )
     combined.index = [f"{dt.day}-{dt.strftime('%b-%y')}" for dt in combined.index]
     return combined
@@ -1026,8 +1049,8 @@ def render_recap(d, report, color):
         st.markdown(_recap_html(chg, signed=True, change_table=True, scroll=True), unsafe_allow_html=True)
 
     oi_tbl = _build_oi_df(d, report)
-    with st.expander("OI by category  ·  k lots", expanded=False):
-        st.markdown(_recap_html(oi_tbl, signed_groups={"Δ 1w"}, scroll=True), unsafe_allow_html=True)
+    with st.expander("OI by category  ·  k lots  &  %", expanded=False):
+        st.markdown(_recap_html(oi_tbl, signed_groups={"Δ 1w"}, pct_groups={"OI %"}, scroll=True), unsafe_allow_html=True)
 
     if report == "CIT":
         guide = """
