@@ -843,7 +843,7 @@ _RECAP_CSS = """
 </style>
 """
 
-def _recap_html(df, signed=False, change_table=False):
+def _recap_html(df, signed=False, change_table=False, scroll=False):
     if df.empty: return ""
     cols = list(df.columns)
     # Build group spans
@@ -880,7 +880,8 @@ def _recap_html(df, signed=False, change_table=False):
             body += f'<td class="{cls}">{txt}</td>'
         body += '</tr>'
 
-    return (f'{_RECAP_CSS}<div style="overflow-x:auto;margin-bottom:6px">'
+    scroll_style = "overflow-x:auto;overflow-y:auto;max-height:420px;" if scroll else "overflow-x:auto;"
+    return (f'{_RECAP_CSS}<div style="{scroll_style}margin-bottom:6px">'
             f'<table class="rtbl"><thead>{h1}{h2}</thead>'
             f'<tbody>{body}</tbody></table></div>')
 
@@ -971,19 +972,17 @@ def render_recap(d, report, color):
     if body.empty:
         st.warning("No data."); return
 
-    n_weeks = st.slider("Weeks to display", min_value=4, max_value=min(104, len(body)),
-                        value=min(20, len(body)), step=1, key="recap_weeks")
-    view = body.iloc[:n_weeks]
+    view = body.iloc[:20]
 
     with st.expander("Change summary  ·  k lots", expanded=True):
         st.markdown(_recap_html(summary, signed=True), unsafe_allow_html=True)
 
-    with st.expander(f"Historical positions  ·  k lots  (last {n_weeks}w)", expanded=True):
-        st.markdown(_recap_html(view), unsafe_allow_html=True)
+    with st.expander("Historical positions  ·  k lots", expanded=True):
+        st.markdown(_recap_html(view, scroll=True), unsafe_allow_html=True)
 
-    with st.expander(f"Weekly change  ·  k lots  (last {n_weeks}w)", expanded=True):
+    with st.expander("Weekly change  ·  k lots", expanded=True):
         chg = view.diff(-1)
-        st.markdown(_recap_html(chg, signed=True, change_table=True), unsafe_allow_html=True)
+        st.markdown(_recap_html(chg, signed=True, change_table=True, scroll=True), unsafe_allow_html=True)
 
     if report == "CIT":
         guide = """
