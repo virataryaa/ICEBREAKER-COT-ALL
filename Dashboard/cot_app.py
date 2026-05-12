@@ -828,6 +828,8 @@ _RECAP_GROUP_BG = {
     "SP":              "#fed7aa",
     "Spec ex Swap":    "#a7f3d0",
     "OI":              "#e5e7eb",
+    "OI · k lots":     "#e5e7eb",
+    "Δ 1w":            "#f9a8d4",
 }
 _CHANGE_BG = "#f9a8d4"
 
@@ -843,7 +845,7 @@ _RECAP_CSS = """
 </style>
 """
 
-def _recap_html(df, signed=False, change_table=False, scroll=False):
+def _recap_html(df, signed=False, change_table=False, scroll=False, signed_groups=None):
     if df.empty: return ""
     cols = list(df.columns)
     # Build group spans
@@ -872,7 +874,9 @@ def _recap_html(df, signed=False, change_table=False, scroll=False):
         for c in cols:
             v = row[c]
             if pd.isna(v): body += '<td>—</td>'; continue
-            if signed or change_table:
+            use_signed = signed or change_table or (
+                signed_groups and isinstance(c, tuple) and c[0] in signed_groups)
+            if use_signed:
                 txt = f"{v:+.1f}"
                 cls = "rpos" if v > 0 else ("rneg" if v < 0 else "")
             else:
@@ -964,6 +968,43 @@ def _build_recap_df(d, report):
     return summary, body
 
 
+def _build_oi_df(d, report):
+    d = d.sort_values("Date", ascending=True).reset_index(drop=True)
+    if d.empty:
+        return pd.DataFrame()
+
+    def gc(name):
+        return d[name].astype(float) if name in d.columns else pd.Series(0.0, index=d.index)
+
+    if report == "CIT":
+        oi_cols = {
+            "Large Spec": (gc("Spec Long") + gc("Spec Short")) / 2 / 1000 + gc("Spec Spread") / 1000,
+            "Small Spec": (gc("Non Rep Long") + gc("Non Rep Short")) / 2 / 1000,
+            "Index":      (gc("Index Long") + gc("Index Short")) / 2 / 1000,
+            "Commercial": (gc("Comm Long") + gc("Comm Short")) / 2 / 1000,
+        }
+    else:
+        oi_cols = {
+            "MM":         (gc("MM Long") + gc("MM Short")) / 2 / 1000 + gc("MM Spread") / 1000,
+            "Other":      (gc("Other Long") + gc("Other Short")) / 2 / 1000 + gc("Other Spread") / 1000,
+            "Swap":       (gc("Swap Long") + gc("Swap Short")) / 2 / 1000 + gc("Swap Spread") / 1000,
+            "Commercial": (gc("Producer Long") + gc("Producer Short")) / 2 / 1000,
+        }
+
+    oi_df = pd.DataFrame(oi_cols)
+    oi_df.index = pd.to_datetime(d["Date"])
+    oi_df = oi_df.iloc[::-1].iloc[:20]  # newest first, last 20
+
+    chg_df = oi_df.diff(-1)
+    cats = list(oi_cols.keys())
+    combined = pd.concat([oi_df, chg_df], axis=1)
+    combined.columns = pd.MultiIndex.from_tuples(
+        [("OI · k lots", c) for c in cats] + [("Δ 1w", c) for c in cats]
+    )
+    combined.index = [f"{dt.day}-{dt.strftime('%b-%y')}" for dt in combined.index]
+    return combined
+
+
 def render_recap(d, report, color):
     if d.empty:
         st.warning("No data for the selected filters."); return
@@ -983,6 +1024,10 @@ def render_recap(d, report, color):
     with st.expander("Weekly change  ·  k lots", expanded=True):
         chg = view.diff(-1)
         st.markdown(_recap_html(chg, signed=True, change_table=True, scroll=True), unsafe_allow_html=True)
+
+    oi_tbl = _build_oi_df(d, report)
+    with st.expander("OI by category  ·  k lots", expanded=False):
+        st.markdown(_recap_html(oi_tbl, signed_groups={"Δ 1w"}, scroll=True), unsafe_allow_html=True)
 
     if report == "CIT":
         guide = """
