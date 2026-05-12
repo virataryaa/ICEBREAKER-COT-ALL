@@ -818,6 +818,189 @@ def render_traders(d, report, color):
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 6 — CONCENTRATION
 # ══════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 0 — RECAP
+# ══════════════════════════════════════════════════════════════════════════════
+_RECAP_GROUP_BG = {
+    "Gross Positions": "#d1d5db",
+    "NET":             "#bae6fd",
+    "SPREAD":          "#fed7aa",
+    "SP":              "#fed7aa",
+    "Spec ex Swap":    "#a7f3d0",
+    "OI":              "#e5e7eb",
+}
+_CHANGE_BG = "#f9a8d4"
+
+_RECAP_CSS = """
+<style>
+.rtbl{border-collapse:collapse;font-size:.76rem;width:100%;font-family:-apple-system,sans-serif}
+.rtbl th,.rtbl td{border:1px solid #e5e7eb;padding:3px 8px;white-space:nowrap;text-align:right}
+.rtbl .grp{text-align:center;font-weight:700;font-size:.75rem;letter-spacing:.04em}
+.rtbl .idx{text-align:left;font-weight:600;color:#374151;background:#f9fafb;min-width:70px}
+.rtbl .sub{background:#f9fafb;font-size:.70rem;color:#555;font-weight:600}
+.rtbl tbody tr:hover td{background:#f0f9ff!important}
+.rpos{color:#16a34a}.rneg{color:#dc2626}
+</style>
+"""
+
+def _recap_html(df, signed=False, change_table=False):
+    if df.empty: return ""
+    cols = list(df.columns)
+    # Build group spans
+    groups, prev = [], None
+    for c in cols:
+        g = c[0]
+        if g == prev: groups[-1][1] += 1
+        else: groups.append([g, 1]); prev = g
+
+    # Header row 1 — merged group headers
+    h1 = '<tr><th class="idx sub"></th>'
+    for g, span in groups:
+        bg = _CHANGE_BG if change_table else _RECAP_GROUP_BG.get(g, "#f9fafb")
+        h1 += f'<th colspan="{span}" class="grp" style="background:{bg}">{g}</th>'
+    h1 += '</tr>'
+
+    # Header row 2 — sub-column names
+    h2 = '<tr><th class="idx sub"></th>'
+    for c in cols: h2 += f'<th class="sub">{c[1]}</th>'
+    h2 += '</tr>'
+
+    # Body rows
+    body = ""
+    for idx, row in df.iterrows():
+        body += f'<tr><td class="idx">{idx}</td>'
+        for c in cols:
+            v = row[c]
+            if pd.isna(v): body += '<td>—</td>'; continue
+            if signed or change_table:
+                txt = f"{v:+.1f}"
+                cls = "rpos" if v > 0 else ("rneg" if v < 0 else "")
+            else:
+                txt = f"{v:.1f}"; cls = ""
+            body += f'<td class="{cls}">{txt}</td>'
+        body += '</tr>'
+
+    return (f'{_RECAP_CSS}<div style="overflow-x:auto;margin-bottom:6px">'
+            f'<table class="rtbl"><thead>{h1}{h2}</thead>'
+            f'<tbody>{body}</tbody></table></div>')
+
+def _build_recap_df(d, report):
+    d = d.sort_values("Date", ascending=True).reset_index(drop=True)
+    if d.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    def gc(name):
+        return d[name].astype(float) if name in d.columns else pd.Series(0.0, index=d.index)
+
+    cols = {}
+
+    if report == "CIT":
+        for src, dst in [
+            ("Spec Long",    "Large Long"),  ("Spec Short",    "Large Short"),
+            ("Non Rep Long", "Small Long"),  ("Non Rep Short", "Small Short"),
+            ("Index Long",   "Index Long"),  ("Index Short",   "Index Short"),
+            ("Comm Long",    "Comm Long"),   ("Comm Short",    "Comm Short"),
+        ]:
+            if src in d.columns:
+                cols[("Gross Positions", dst)] = gc(src) / 1000
+
+        cols[("NET", "Large")]        = gc("Spec Net")   / 1000
+        cols[("NET", "Small")]        = gc("Non Rep Net") / 1000
+        cols[("NET", "Index")]        = gc("Index Net")   / 1000
+        cols[("NET", "Comm")]         = gc("Comm Net")    / 1000
+        cols[("NET", "Large+Small")]  = (gc("Spec Net") + gc("Non Rep Net")) / 1000
+        cols[("NET", "Lrg+Sml+Idx")] = (gc("Spec Net") + gc("Non Rep Net") + gc("Index Net")) / 1000
+
+        if "Spec Spread" in d.columns:
+            cols[("SPREAD", "Spec Spread")] = gc("Spec Spread") / 1000
+
+        cols[("OI", "Total OI")] = gc("Total OI") / 1000
+
+    else:  # Disagg
+        for src, dst in [
+            ("MM Long",       "MM Long"),    ("MM Short",       "MM Short"),
+            ("Other Long",    "Other Long"), ("Other Short",    "Other Short"),
+            ("Non Rep Long",  "Non-Rep Long"),("Non Rep Short", "Non-Rep Short"),
+            ("Swap Long",     "Swap Long"),  ("Swap Short",     "Swap Short"),
+            ("Producer Long", "Comm Long"),  ("Producer Short", "Comm Short"),
+        ]:
+            if src in d.columns:
+                cols[("Gross Positions", dst)] = gc(src) / 1000
+
+        cols[("Spec ex Swap", "Long")]  = (gc("MM Long")  + gc("Other Long")  + gc("Non Rep Long"))  / 1000
+        cols[("Spec ex Swap", "Short")] = (gc("MM Short") + gc("Other Short") + gc("Non Rep Short")) / 1000
+
+        cols[("NET", "MM")]   = gc("MM Net")   / 1000
+        cols[("NET", "Rest")] = (gc("Other Net") + gc("Non Rep Net")) / 1000
+        cols[("NET", "Swap")] = gc("Swap Net")  / 1000
+        cols[("NET", "Comm")] = gc("Comm Net")  / 1000
+
+        for src, dst in [
+            ("MM Spread",    "MM Spread"),
+            ("Other Spread", "Other Spread"),
+            ("Swap Spread",  "Swap Spread"),
+        ]:
+            if src in d.columns:
+                cols[("SP", dst)] = gc(src) / 1000
+
+        cols[("OI", "Total OI")] = gc("Total OI") / 1000
+
+    body = pd.DataFrame(cols)
+    body.index = pd.to_datetime(d["Date"])
+    body = body.iloc[::-1]  # newest first
+
+    row_1w, row_4w = {}, {}
+    for c in body.columns:
+        if len(body) >= 2:
+            row_1w[c] = body.iloc[0][c] - body.iloc[1][c]
+        if len(body) >= 5:
+            row_4w[c] = body.iloc[0][c] - body.iloc[4][c]
+
+    summary = pd.DataFrame([row_1w, row_4w],
+                           index=["+/-1w", "+/-4w"],
+                           columns=body.columns)
+    body.index = [f"{dt.day}-{dt.strftime('%b-%y')}" for dt in body.index]
+    return summary, body
+
+
+def render_recap(d, report, color):
+    if d.empty:
+        st.warning("No data for the selected filters."); return
+
+    summary, body = _build_recap_df(d, report)
+    if body.empty:
+        st.warning("No data."); return
+
+    with st.expander("Change summary  ·  k lots", expanded=True):
+        st.markdown(_recap_html(summary, signed=True), unsafe_allow_html=True)
+
+    with st.expander("Historical positions  ·  k lots", expanded=True):
+        st.markdown(_recap_html(body), unsafe_allow_html=True)
+
+    with st.expander("Weekly change  ·  k lots", expanded=True):
+        chg = body.diff(-1)
+        st.markdown(_recap_html(chg, signed=True, change_table=True), unsafe_allow_html=True)
+
+    if report == "CIT":
+        guide = """
+**Large Long / Large Short** — Non-Commercial
+
+**Small Long / Small Short** — Non-Reportable
+
+**Large+Small** — Non-Commercial Net + Non-Reportable Net (total non-index speculative net)
+
+**Lrg+Sml+Idx** — Non-Commercial Net + Non-Reportable Net + Index Traders Net (everything ex-Commercial)
+"""
+    else:
+        guide = """
+**Spec ex Swap Long/Short** — MM Long/Short + Other Long/Short + Non-Rep Long/Short (all speculative ex swap dealers)
+
+**Rest (NET)** — Other Net + Non-Reportable Net combined
+"""
+    with st.expander("Column guide", expanded=False):
+        st.markdown(guide)
+
+
 # ── CIT vs Disagg crosswalk ───────────────────────────────────────────────────
 CROSSWALK = {
     "Non-Comm vs Managed Money": {
@@ -1074,8 +1257,8 @@ def render_comparison(commodity, start_date, end_date, color):
     )
 
     # Controls
-    pair = st.radio("Pair", list(CROSSWALK.keys()), horizontal=True, key="cmp_pair")
-    unit = st.radio("Unit", ["k lots","% of OI"], horizontal=True, key="cmp_unit")
+    pair = st.selectbox("Pair", list(CROSSWALK.keys()), key="cmp_pair")
+    unit = "k lots"
     cfg  = CROSSWALK[pair]
     st.markdown(
         f"<div style='font-size:.77rem;color:#666;background:#f7f8fa;"
@@ -1134,21 +1317,18 @@ def render_comparison(commodity, start_date, end_date, color):
             line=dict(color=DAG_COLOR, width=2.2, dash="dash"),
             hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{cfg['dag_label']}: %{{y:.1f}}{suffix}<extra></extra>")})
 
-    fig_ts = make_subplots(specs=[[{"secondary_y": True}]])
+    fig_ts = go.Figure()
     for s in traces:
-        fig_ts.add_trace(s["trace"], secondary_y=False)
-    _add_price(fig_ts, cit if "Px" in cit.columns else dag, secondary_y=True)
+        fig_ts.add_trace(s["trace"])
     fig_ts.update_layout(
         **_BASE, height=380,
         title=dict(text=f"{cfg['cit_label']}  vs  {cfg['dag_label']}  ·  Net  ·  {ylabel}",
                    font=dict(size=12,color="#333"), x=0),
-        margin=dict(l=52,r=55,t=42,b=72),
+        margin=dict(l=52,r=20,t=42,b=72),
         legend=dict(orientation="h",y=-0.22,x=0.5,xanchor="center",font_size=10),
         xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
     )
-    fig_ts.update_yaxes(title_text=ylabel, title_font_size=10, secondary_y=False, **_ax())
-    fig_ts.update_yaxes(title_text="Price", title_font_size=10, secondary_y=True,
-                        showgrid=False, tickfont=dict(size=10,color=C_PRICE))
+    fig_ts.update_yaxes(title_text=ylabel, title_font_size=10, **_ax())
     st.plotly_chart(fig_ts, use_container_width=True)
 
     # ── 2. Gap bar chart ───────────────────────────────────────────────────────
@@ -1264,8 +1444,11 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("<div style='font-size:.78rem;font-weight:600;color:#444;"
                 "margin-bottom:6px'>Date range</div>", unsafe_allow_html=True)
-    start_date = st.date_input("From", value=datetime.date(2020,1,1), key="dt_from")
-    end_date   = st.date_input("To",   value=datetime.date.today(),   key="dt_to")
+    _max_date = pd.read_parquet(CIT_FILE, columns=["Date"])["Date"].max().date()
+    start_date = st.date_input("From", value=datetime.date(2020,1,1),
+                               min_value=datetime.date(2010,1,1), max_value=_max_date, key="dt_from")
+    end_date   = st.date_input("To",   value=_max_date,
+                               min_value=datetime.date(2010,1,1), max_value=_max_date, key="dt_to")
 
     st.markdown("---")
     st.markdown("<div style='font-size:.68rem;color:#bbb;margin-top:4px'>"
@@ -1315,21 +1498,22 @@ if df.empty:
 # ══════════════════════════════════════════════════════════════════════════════
 # TABS
 # ══════════════════════════════════════════════════════════════════════════════
-TAB_LABELS = ["Spec","Commercial","Spreading","Old / New",
+TAB_LABELS = ["Recap","Spec","Commercial","Spreading","Old / New",
               "Traders","Concentration","Exposure","Analysis","CIT vs Disagg"]
 
 tabs = st.tabs(TAB_LABELS)
 
-with tabs[0]: render_spec(df, report, color)
-with tabs[1]: render_commercial(df, report, color)
-with tabs[2]:
+with tabs[0]: render_recap(df, report, color)
+with tabs[1]: render_spec(df, report, color)
+with tabs[2]: render_commercial(df, report, color)
+with tabs[3]:
     if report=="Disagg": render_spreading(df, color)
     else: st.info("Spreading is only available for the Disaggregated report.")
-with tabs[3]:
+with tabs[4]:
     if report=="Disagg" and df_all_crops is not None: render_old_new(df_all_crops, color)
     else: st.info("Old / New crop split is only available for the Disaggregated report.")
-with tabs[4]: render_traders(df, report, color)
-with tabs[5]: render_concentration(df, color)
-with tabs[6]: render_exposure(df, commodity, color)
-with tabs[7]: render_analysis(df, report, color)
-with tabs[8]: render_comparison(commodity, start_date, end_date, color)
+with tabs[5]: render_traders(df, report, color)
+with tabs[6]: render_concentration(df, color)
+with tabs[7]: render_exposure(df, commodity, color)
+with tabs[8]: render_analysis(df, report, color)
+with tabs[9]: render_comparison(commodity, start_date, end_date, color)
