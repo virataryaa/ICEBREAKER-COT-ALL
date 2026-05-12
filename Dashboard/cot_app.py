@@ -114,6 +114,8 @@ def _add_pct(df):
 def load_cit() -> pd.DataFrame:
     df = pd.read_parquet(CIT_FILE)
     df["Date"] = pd.to_datetime(df["Date"])
+    num = [c for c in df.columns if c not in ("Date","Commodity","Crop")]
+    df[num] = df[num].astype(float)
     df = _derive_nets(df, df.columns)
     # Combined spec = Large Spec + Non Rep + Index
     for side in ("Long","Short"):
@@ -131,6 +133,8 @@ def load_disagg(version: str) -> pd.DataFrame:
     path = FO_FILE if version == "F&O" else FUT_FILE
     df = pd.read_parquet(path)
     df["Date"] = pd.to_datetime(df["Date"])
+    num = [c for c in df.columns if c not in ("Date","Commodity","Crop")]
+    df[num] = df[num].astype(float)
     df = _derive_nets(df, df.columns)
     # Combined spec (Disagg) = MM + Other + Non Rep + Swap
     for side in ("Long","Short"):
