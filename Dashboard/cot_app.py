@@ -818,6 +818,35 @@ def render_traders(d, report, color):
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 6 — CONCENTRATION
 # ══════════════════════════════════════════════════════════════════════════════
+# ── CIT vs Disagg crosswalk ───────────────────────────────────────────────────
+CROSSWALK = {
+    "Non-Comm vs Managed Money": {
+        "cit_long":"Spec Long",    "cit_short":"Spec Short",    "cit_net":"Spec Net",
+        "dag_long":"MM Long",      "dag_short":"MM Short",      "dag_net":"MM Net",
+        "cit_label":"Non-Commercial (CIT)", "dag_label":"Managed Money (Disagg)",
+        "desc":"Pure speculative/fund positioning — the most direct apple-to-apple match.",
+    },
+    "Index Traders vs Swap Dealers": {
+        "cit_long":"Index Long",   "cit_short":"Index Short",   "cit_net":"Index Net",
+        "dag_long":"Swap Long",    "dag_short":"Swap Short",    "dag_net":"Swap Net",
+        "cit_label":"Index Traders (CIT)", "dag_label":"Swap Dealers (Disagg)",
+        "desc":"Financial intermediary/index exposure — where reclassification diverges most.",
+    },
+    "Commercial vs Producer/Merchant": {
+        "cit_long":"Comm Long",     "cit_short":"Comm Short",     "cit_net":"Comm Net",
+        "dag_long":"Producer Long", "dag_short":"Producer Short", "dag_net":"Comm Net",
+        "cit_label":"CIT Commercial", "dag_label":"Producer/Merchant (Disagg)",
+        "desc":"Physical hedgers — CIT Commercial includes swap-dealer activity that Disagg separates out.",
+    },
+    "Financial Side (Combined)": {
+        "cit_long":None, "cit_short":None, "cit_net":"Fin Net",
+        "dag_long":None, "dag_short":None, "dag_net":"Fin Net",
+        "cit_label":"CIT NonComm + Index", "dag_label":"Disagg MM + Swap + Other",
+        "desc":"Total non-physical/financial side — CIT (NonComm+Index) vs Disagg (MM+Swap+Other).",
+        "computed":True,
+    },
+}
+
 CONC_COLS = ["Conc Gross 4 Long","Conc Gross 4 Short",
              "Conc Gross 8 Long","Conc Gross 8 Short",
              "Conc Net 4 Long","Conc Net 4 Short",
@@ -1007,6 +1036,206 @@ def render_analysis(d, report, color):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# TAB 9 — CIT vs DISAGG COMPARISON
+# ══════════════════════════════════════════════════════════════════════════════
+def render_comparison(commodity, start_date, end_date, color):
+    if commodity not in CIT_COMMS:
+        st.info("CIT vs Disagg comparison is only available for KC, CC, SB, and CT.")
+        return
+
+    cit_raw = load_cit()
+    dag_raw = load_disagg("F&O")
+
+    cit = cit_raw[
+        (cit_raw["Commodity"] == commodity) &
+        (cit_raw["Date"] >= pd.Timestamp(start_date)) &
+        (cit_raw["Date"] <= pd.Timestamp(end_date))
+    ].sort_values("Date").reset_index(drop=True).copy()
+
+    dag = dag_raw[
+        (dag_raw["Commodity"] == commodity) &
+        (dag_raw["Crop"] == "All") &
+        (dag_raw["Date"] >= pd.Timestamp(start_date)) &
+        (dag_raw["Date"] <= pd.Timestamp(end_date))
+    ].sort_values("Date").reset_index(drop=True).copy()
+
+    if cit.empty or dag.empty:
+        st.warning("Insufficient data for the selected range."); return
+
+    # Compute Financial Net
+    cit["Fin Net"] = (
+        cit.get("Spec Net",  pd.Series(0, index=cit.index)).fillna(0) +
+        cit.get("Index Net", pd.Series(0, index=cit.index)).fillna(0)
+    )
+    dag["Fin Net"] = (
+        dag.get("MM Net",    pd.Series(0, index=dag.index)).fillna(0) +
+        dag.get("Swap Net",  pd.Series(0, index=dag.index)).fillna(0) +
+        dag.get("Other Net", pd.Series(0, index=dag.index)).fillna(0)
+    )
+
+    # Controls
+    pair = st.radio("Pair", list(CROSSWALK.keys()), horizontal=True, key="cmp_pair")
+    unit = st.radio("Unit", ["k lots","% of OI"], horizontal=True, key="cmp_unit")
+    cfg  = CROSSWALK[pair]
+    st.markdown(
+        f"<div style='font-size:.77rem;color:#666;background:#f7f8fa;"
+        f"border-radius:6px;padding:7px 12px;margin-bottom:12px'>{cfg['desc']}</div>",
+        unsafe_allow_html=True)
+
+    cit_nc, dag_nc = cfg["cit_net"], cfg["dag_net"]
+    suffix = "k" if unit == "k lots" else "%"
+    ylabel = "k lots" if unit == "k lots" else "% of OI"
+    DAG_COLOR = "#64748b"
+    r, g, b   = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
+
+    # Merge on Date for gap + correlation
+    merge_cit = cit[["Date", cit_nc]].rename(columns={cit_nc: "cit_net"}) if cit_nc in cit.columns else None
+    merge_dag = dag[["Date", dag_nc]].rename(columns={dag_nc: "dag_net"}) if dag_nc in dag.columns else None
+    merged = None
+    if merge_cit is not None and merge_dag is not None:
+        merged = pd.merge(merge_cit, merge_dag, on="Date", how="inner").sort_values("Date")
+        merged["gap"] = (merged["cit_net"] - merged["dag_net"]) / 1000
+
+    # KPI row
+    def _net_kpi_cmp(df, col, label):
+        if col not in df.columns or df.empty: return (label, "—", "")
+        v, p = df[col].iloc[-1], (df[col].iloc[-2] if len(df)>1 else df[col].iloc[-1])
+        val  = f"{v/1000:.1f}k" if unit=="k lots" else (
+               f"{v/df['Total OI'].iloc[-1]*100:.1f}%" if "Total OI" in df.columns else f"{v/1000:.1f}k")
+        chg  = f"{'▲' if v>p else '▼'}{abs(v-p)/1000:.1f}k"
+        return (label, val, chg)
+
+    kpi_items = [
+        _net_kpi_cmp(cit, cit_nc, cfg["cit_label"]),
+        _net_kpi_cmp(dag, dag_nc, cfg["dag_label"]),
+    ]
+    if merged is not None and not merged.empty:
+        gap_latest = merged["gap"].iloc[-1]
+        ca  = np.asarray(merged["cit_net"], dtype=float)
+        da  = np.asarray(merged["dag_net"], dtype=float)
+        msk = ~(np.isnan(ca)|np.isnan(da))
+        corr = float(np.corrcoef(ca[msk], da[msk])[0,1]) if msk.sum()>4 else np.nan
+        kpi_items += [
+            ("Gap (CIT−Disagg)", f"{gap_latest:+.1f}k", ""),
+            ("Corr (full period)", f"{corr:.2f}" if pd.notna(corr) else "—", ""),
+        ]
+    kpi_row(kpi_items, color)
+
+    # ── 1. Overlay Net timeseries ──────────────────────────────────────────────
+    traces = []
+    if cit_nc in cit.columns:
+        traces.append({"trace": go.Scatter(
+            x=cit["Date"], y=_get_y(cit, cit_nc, unit), name=cfg["cit_label"],
+            line=dict(color=color, width=2.2),
+            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{cfg['cit_label']}: %{{y:.1f}}{suffix}<extra></extra>")})
+    if dag_nc in dag.columns:
+        traces.append({"trace": go.Scatter(
+            x=dag["Date"], y=_get_y(dag, dag_nc, unit), name=cfg["dag_label"],
+            line=dict(color=DAG_COLOR, width=2.2, dash="dash"),
+            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{cfg['dag_label']}: %{{y:.1f}}{suffix}<extra></extra>")})
+
+    fig_ts = make_subplots(specs=[[{"secondary_y": True}]])
+    for s in traces:
+        fig_ts.add_trace(s["trace"], secondary_y=False)
+    _add_price(fig_ts, cit if "Px" in cit.columns else dag, secondary_y=True)
+    fig_ts.update_layout(
+        **_BASE, height=380,
+        title=dict(text=f"{cfg['cit_label']}  vs  {cfg['dag_label']}  ·  Net  ·  {ylabel}",
+                   font=dict(size=12,color="#333"), x=0),
+        margin=dict(l=52,r=55,t=42,b=72),
+        legend=dict(orientation="h",y=-0.22,x=0.5,xanchor="center",font_size=10),
+        xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
+    )
+    fig_ts.update_yaxes(title_text=ylabel, title_font_size=10, secondary_y=False, **_ax())
+    fig_ts.update_yaxes(title_text="Price", title_font_size=10, secondary_y=True,
+                        showgrid=False, tickfont=dict(size=10,color=C_PRICE))
+    st.plotly_chart(fig_ts, use_container_width=True)
+
+    # ── 2. Gap bar chart ───────────────────────────────────────────────────────
+    if merged is not None and not merged.empty:
+        gap = np.asarray(merged["gap"], dtype=float)
+        fig_gap = go.Figure(go.Bar(
+            x=merged["Date"], y=gap,
+            marker=dict(color=[C_LONG if v>=0 else C_SHORT for v in gap],
+                        opacity=0.82, line=dict(width=0)),
+            hovertemplate="<b>%{x|%b %Y}</b><br>CIT−Disagg: %{y:+.1f}k<extra></extra>",
+        ))
+        fig_gap.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.14)")
+        fig_gap.update_layout(
+            **_BASE, height=260,
+            title=dict(text=f"Gap: {cfg['cit_label']} minus {cfg['dag_label']}  ·  k lots",
+                       font=dict(size=11,color="#444"), x=0),
+            margin=dict(l=50,r=12,t=36,b=68), showlegend=False,
+            xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
+            yaxis=dict(**_ax(),title_text="k lots",title_font_size=10),
+        )
+        st.plotly_chart(fig_gap, use_container_width=True)
+
+    # ── 3. Long / Short breakdown ──────────────────────────────────────────────
+    cit_lc, cit_sc = cfg.get("cit_long"), cfg.get("cit_short")
+    dag_lc, dag_sc = cfg.get("dag_long"), cfg.get("dag_short")
+    if cit_lc and dag_lc and cit_lc in cit.columns and dag_lc in dag.columns:
+        st.markdown("**Long & Short breakdown**")
+        ch1, ch2 = st.columns(2)
+        for ch, (cit_col, dag_col, lbl, clr) in zip(
+            [ch1, ch2],
+            [(cit_lc, dag_lc, "Long", C_LONG), (cit_sc, dag_sc, "Short", C_SHORT)]
+        ):
+            with ch:
+                fig_ls = go.Figure()
+                fig_ls.add_trace(go.Scatter(
+                    x=cit["Date"], y=_get_y(cit, cit_col, unit), name=f"CIT {lbl}",
+                    line=dict(color=clr, width=2.0),
+                    hovertemplate=f"<b>%{{x|%b %Y}}</b><br>CIT {lbl}: %{{y:.1f}}{suffix}<extra></extra>"))
+                if dag_col and dag_col in dag.columns:
+                    fig_ls.add_trace(go.Scatter(
+                        x=dag["Date"], y=_get_y(dag, dag_col, unit), name=f"Disagg {lbl}",
+                        line=dict(color=clr, width=2.0, dash="dash"),
+                        hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Disagg {lbl}: %{{y:.1f}}{suffix}<extra></extra>"))
+                fig_ls.update_layout(
+                    **_BASE, height=280,
+                    title=dict(text=f"{lbl} positions  ·  {ylabel}", font=dict(size=11,color="#444"), x=0),
+                    margin=dict(l=50,r=12,t=36,b=68), showlegend=True,
+                    legend=dict(orientation="h",y=-0.32,x=0.5,xanchor="center",font_size=10),
+                    xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
+                    yaxis=dict(**_ax(),title_text=ylabel,title_font_size=10))
+                st.plotly_chart(fig_ls, use_container_width=True)
+
+    # ── 4. Rolling correlation ─────────────────────────────────────────────────
+    if merged is not None and len(merged) > 12:
+        with st.expander("Rolling 52-week Correlation", expanded=False):
+            s_cit = pd.Series(np.asarray(merged["cit_net"],dtype=float), index=merged["Date"])
+            s_dag = pd.Series(np.asarray(merged["dag_net"],dtype=float), index=merged["Date"])
+            roll  = s_cit.rolling(52).corr(s_dag).dropna()
+            fig_rc = go.Figure(go.Scatter(
+                x=roll.index, y=roll.values, mode="lines",
+                line=dict(color=color, width=2.0),
+                fill="tozeroy", fillcolor=f"rgba({r},{g},{b},0.08)",
+                hovertemplate="<b>%{x|%b %Y}</b><br>Corr: %{y:.2f}<extra></extra>"))
+            fig_rc.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.12)")
+            fig_rc.update_layout(
+                **_BASE, height=270,
+                title=dict(text="Rolling 52-week Correlation — CIT vs Disagg",
+                           font=dict(size=11,color="#444"), x=0),
+                margin=dict(l=50,r=12,t=36,b=50),
+                xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
+                yaxis=dict(**_ax(),title_text="Correlation",title_font_size=10,range=[-1.1,1.1]))
+            st.plotly_chart(fig_rc, use_container_width=True)
+
+    # ── 5. Data table ──────────────────────────────────────────────────────────
+    with st.expander("Data table", expanded=False):
+        cols_cit = [c for c in [cit_nc, cfg.get("cit_long"), cfg.get("cit_short")] if c and c in cit.columns]
+        cols_dag = [c for c in [dag_nc, cfg.get("dag_long"), cfg.get("dag_short")] if c and c in dag.columns]
+        tbl_cit  = cit[["Date"]+cols_cit].rename(columns={c: f"CIT {c}" for c in cols_cit}).sort_values("Date",ascending=False).head(60)
+        tbl_dag  = dag[["Date"]+cols_dag].rename(columns={c: f"Dag {c}" for c in cols_dag}).sort_values("Date",ascending=False).head(60)
+        tbl = pd.merge(tbl_cit, tbl_dag, on="Date", how="outer").sort_values("Date",ascending=False).reset_index(drop=True)
+        tbl["Date"] = pd.to_datetime(tbl["Date"]).dt.strftime("%d %b '%y")
+        num_c = [c for c in tbl.columns if c!="Date"]
+        styled = (tbl.style.format({c:"{:,.0f}" for c in num_c}, na_rep="—").hide(axis="index"))
+        st.dataframe(styled, use_container_width=True, height=380)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
@@ -1087,7 +1316,7 @@ if df.empty:
 # TABS
 # ══════════════════════════════════════════════════════════════════════════════
 TAB_LABELS = ["Spec","Commercial","Spreading","Old / New",
-              "Traders","Concentration","Exposure","Analysis"]
+              "Traders","Concentration","Exposure","Analysis","CIT vs Disagg"]
 
 tabs = st.tabs(TAB_LABELS)
 
@@ -1103,3 +1332,4 @@ with tabs[4]: render_traders(df, report, color)
 with tabs[5]: render_concentration(df, color)
 with tabs[6]: render_exposure(df, commodity, color)
 with tabs[7]: render_analysis(df, report, color)
+with tabs[8]: render_comparison(commodity, start_date, end_date, color)
