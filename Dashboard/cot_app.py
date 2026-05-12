@@ -176,8 +176,7 @@ def kpi_row(items: list, color: str):
 def _val(row, col, unit):
     v = row.get(col, np.nan)
     if pd.isna(v): return "—"
-    # Net positions are never meaningful as % of OI (can be negative)
-    if unit == "k lots" or (isinstance(col, str) and col.endswith("Net")):
+    if unit == "k lots":
         return f"{v/1000:.1f}k"
     pc = row.get(f"Pct OI {col}", np.nan)
     return f"{pc:.1f}%" if pd.notna(pc) else f"{v/1000:.1f}k"
@@ -198,8 +197,7 @@ def _px_kpi(curr_row, prev_row):
     return s, chg
 
 def _get_y(d, col, unit):
-    # Net columns always stay in k lots — % of OI is meaningless for a signed position
-    if unit == "k lots" or (isinstance(col, str) and col.endswith("Net")):
+    if unit == "k lots":
         return d[col] / 1000 if col in d.columns else pd.Series(dtype=float)
     pc = f"Pct OI {col}"
     if pc in d.columns: return d[pc]
@@ -299,35 +297,55 @@ def bars_weekly(d, col, title, n=13):
     return fig
 
 def bars_combined(d, lc, sc, nc, title, color, n=13):
+    DARK_GREEN  = "#1a6b1a"
+    LIGHT_GREEN = "#7dce7d"
+    DARK_RED    = "#8b0000"
+    LIGHT_RED   = "#f4a0a0"
+
     tail  = d.tail(n + 1)
     dates = tail["Date"].iloc[1:]
-    lchg  = np.asarray(tail[lc].diff().iloc[1:] / 1000, dtype=float) if lc in d.columns else None
-    schg  = np.asarray(tail[sc].diff().iloc[1:] / 1000, dtype=float) if sc in d.columns else None
-    nchg  = np.asarray(tail[nc].diff().iloc[1:] / 1000, dtype=float) if nc in d.columns else None
-    fig   = go.Figure()
-    if lchg is not None:
-        fig.add_trace(go.Bar(x=dates, y=lchg, name="Long Δ",
-            marker=dict(color=[C_LONG if v >= 0 else "#fca5a5" for v in lchg],
-                        opacity=0.85, line=dict(width=0)),
-            hovertemplate="<b>%{x|%d %b %y}</b><br>Long Δ: %{y:+.1f}k<extra></extra>"))
-    if schg is not None:
-        fig.add_trace(go.Bar(x=dates, y=schg, name="Short Δ",
-            marker=dict(color=[C_SHORT if v >= 0 else "#86efac" for v in schg],
-                        opacity=0.85, line=dict(width=0)),
-            hovertemplate="<b>%{x|%d %b %y}</b><br>Short Δ: %{y:+.1f}k<extra></extra>"))
-    if nchg is not None:
-        fig.add_trace(go.Scatter(x=dates, y=nchg, name="Net Δ", mode="lines+markers",
-            line=dict(color=color, width=2.2, dash="dot"),
-            marker=dict(size=6, color=color, line=dict(width=1, color="white")),
-            hovertemplate="<b>%{x|%d %b %y}</b><br>Net Δ: %{y:+.1f}k<extra></extra>"))
+
+    if lc in d.columns and sc in d.columns:
+        lchg = np.asarray(tail[lc].diff().iloc[1:] / 1000, dtype=float)
+        schg = np.asarray(tail[sc].diff().iloc[1:] / 1000, dtype=float)
+        long_add    = np.where(lchg > 0,  lchg, 0)
+        long_liq    = np.where(lchg < 0,  lchg, 0)
+        short_add   = np.where(schg > 0, -schg, 0)   # negated → goes below zero
+        short_cover = np.where(schg < 0, -schg, 0)   # negated → goes above zero
+    else:
+        long_add = long_liq = short_add = short_cover = None
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    if long_add is not None:
+        for arr, name, clr in [
+            (long_add,    "Long Add",    DARK_GREEN),
+            (long_liq,    "Long Liq.",   LIGHT_GREEN),
+            (short_add,   "Short Add",   DARK_RED),
+            (short_cover, "Short Cover", LIGHT_RED),
+        ]:
+            fig.add_trace(go.Bar(x=dates, y=arr, name=name,
+                marker_color=clr, opacity=0.92,
+                hovertemplate=f"<b>%{{x|%d %b %y}}</b><br>{name}: %{{y:+.2f}}k<extra></extra>"),
+                secondary_y=False)
+
+    if "Px" in d.columns:
+        px_vals = np.asarray(tail["Px"].iloc[1:], dtype=float)
+        fig.add_trace(go.Scatter(x=dates, y=px_vals, name="Price", mode="lines",
+            line=dict(color=C_PRICE, width=1.8),
+            hovertemplate="<b>%{x|%d %b %y}</b><br>Price: %{y:.2f}<extra></extra>"),
+            secondary_y=True)
+
     fig.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.14)")
-    fig.update_layout(**_BASE, height=310, barmode="group",
+    fig.update_layout(**_BASE, height=340, barmode="relative",
         title=dict(text=title, font=dict(size=11, color="#444"), x=0),
-        margin=dict(l=50, r=12, t=36, b=72),
+        margin=dict(l=50, r=55, t=36, b=72),
         legend=dict(orientation="h", y=-0.26, x=0.5, xanchor="center", font_size=10),
         xaxis=dict(**_ax(x=True), tickformat="%d %b '%y"),
-        yaxis=dict(**_ax(), title_text="k lots", title_font_size=10),
-        bargap=0.18, bargroupgap=0.05)
+        bargap=0.12)
+    fig.update_yaxes(title_text="k lots", title_font_size=10, secondary_y=False, **_ax())
+    fig.update_yaxes(title_text="Price", title_font_size=10, secondary_y=True,
+                     showgrid=False, tickfont=dict(size=10, color=C_PRICE))
     return fig
 
 
@@ -497,51 +515,31 @@ def render_spec(d, report, color):
         kpi_items.insert(3, ("Spread", _val(latest, spc, unit), _chg(latest, prev, spc, unit)))
     kpi_row(kpi_items, color)
 
-    # Combined chart — Long/Short in selected unit (left), Net k lots (right when % OI), Price secondary
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
-    use_pct = unit == "% of OI"
+    # Combined timeseries — Long, Short, Net all in selected unit + Price secondary
+    ylabel = "k lots" if unit == "k lots" else "% of OI"
+    suffix = "k" if unit == "k lots" else "%"
+    traces = []
     if lc in d.columns:
-        yl = _get_y(d, lc, unit)
-        fig.add_trace(go.Scatter(x=d["Date"], y=yl, name="Long",
+        traces.append({"trace": go.Scatter(x=d["Date"], y=_get_y(d, lc, unit), name="Long",
             line=dict(color=C_LONG, width=2.0),
-            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Long: %{{y:.{'2f' if use_pct else '1f'}}}"
-                          f"{'%' if use_pct else 'k'}<extra></extra>"), secondary_y=False)
+            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Long: %{{y:.1f}}{suffix}<extra></extra>")})
     if sc in d.columns:
-        ys = _get_y(d, sc, unit)
-        fig.add_trace(go.Scatter(x=d["Date"], y=ys, name="Short",
+        traces.append({"trace": go.Scatter(x=d["Date"], y=_get_y(d, sc, unit), name="Short",
             line=dict(color=C_SHORT, width=2.0),
-            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Short: %{{y:.{'2f' if use_pct else '1f'}}}"
-                          f"{'%' if use_pct else 'k'}<extra></extra>"), secondary_y=False)
+            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Short: %{{y:.1f}}{suffix}<extra></extra>")})
     if nc in d.columns:
-        net_sy = use_pct  # when % OI, put Net on right axis to avoid scale conflict
-        fig.add_trace(go.Scatter(x=d["Date"], y=d[nc]/1000, name="Net (k lots)",
+        traces.append({"trace": go.Scatter(x=d["Date"], y=_get_y(d, nc, unit), name="Net",
             fill="tozeroy", fillcolor=f"rgba({r},{g},{b},0.09)",
             line=dict(color=color, width=2.2),
-            hovertemplate="<b>%{x|%b %Y}</b><br>Net: %{y:.1f}k<extra></extra>"),
-            secondary_y=net_sy)
+            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Net: %{{y:.1f}}{suffix}<extra></extra>")})
     if spc and spc in d.columns:
-        fig.add_trace(go.Scatter(x=d["Date"], y=d[spc]/1000, name="Spread (k lots)",
+        traces.append({"trace": go.Scatter(x=d["Date"], y=_get_y(d, spc, unit), name="Spread",
             line=dict(color="#94a3b8", width=1.4, dash="dot"),
-            hovertemplate="<b>%{x|%b %Y}</b><br>Spread: %{y:.1f}k<extra></extra>"),
-            secondary_y=use_pct)
-    if not use_pct:
-        _add_price(fig, d, secondary_y=True)
-    left_lbl  = "% of OI" if use_pct else "k lots"
-    right_lbl = "Net (k lots)" if use_pct else "Price"
-    right_clr = color if use_pct else C_PRICE
-    fig.update_layout(**_BASE, height=380,
-        title=dict(text=f"{cat}  ·  Long / Short ({left_lbl})  |  Net (k lots)",
-                   font=dict(size=12, color="#333"), x=0),
-        margin=dict(l=52, r=55, t=42, b=72),
-        legend=dict(orientation="h", y=-0.22, x=0.5, xanchor="center", font_size=10),
-        xaxis=dict(**_ax(x=True), tickformat="%b '%y"))
-    fig.update_yaxes(title_text=left_lbl, title_font_size=10, secondary_y=False, **_ax())
-    fig.update_yaxes(title_text=right_lbl, title_font_size=10, secondary_y=True,
-                     showgrid=False, tickfont=dict(size=10, color=right_clr))
-    st.plotly_chart(fig, use_container_width=True)
+            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Spread: %{{y:.1f}}{suffix}<extra></extra>")})
+    st.plotly_chart(timeseries(d, traces, f"{cat}  ·  {ylabel}", ylabel), use_container_width=True)
 
-    # Combined weekly change bars (Long + Short grouped, Net dotted line)
-    st.plotly_chart(bars_combined(d, lc, sc, nc, f"{cat} — weekly changes  ·  k lots", color),
+    # Stacked Long Add/Liq + Short Add/Cover bars + Price
+    st.plotly_chart(bars_combined(d, lc, sc, nc, f"{cat} — weekly flow  ·  k lots", color),
                     use_container_width=True)
 
     with st.expander("Seasonality", expanded=False):
@@ -581,40 +579,24 @@ def render_commercial(d, report, color):
     ]
     kpi_row(kpi_items, color)
 
-    # Combined chart — Long/Short in selected unit (left), Net k lots (right when % OI)
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
-    use_pct = unit == "% of OI"
+    # Combined timeseries — Long, Short, Net in selected unit + Price secondary
+    ylabel = "k lots" if unit == "k lots" else "% of OI"
+    suffix = "k" if unit == "k lots" else "%"
+    traces = []
     for col, name, clr in [(lc, "Long", C_LONG), (sc, "Short", C_SHORT)]:
         if col in d.columns:
-            y = _get_y(d, col, unit)
-            fig.add_trace(go.Scatter(x=d["Date"], y=y, name=name,
+            traces.append({"trace": go.Scatter(x=d["Date"], y=_get_y(d, col, unit), name=name,
                 line=dict(color=clr, width=2.0),
-                hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{name}: %{{y:.{'2f' if use_pct else '1f'}}}"
-                              f"{'%' if use_pct else 'k'}<extra></extra>"), secondary_y=False)
+                hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{name}: %{{y:.1f}}{suffix}<extra></extra>")})
     if nc in d.columns:
-        fig.add_trace(go.Scatter(x=d["Date"], y=d[nc]/1000, name="Net (k lots)",
+        traces.append({"trace": go.Scatter(x=d["Date"], y=_get_y(d, nc, unit), name="Net",
             fill="tozeroy", fillcolor=f"rgba({r},{g},{b},0.07)",
             line=dict(color=color, width=2.2),
-            hovertemplate="<b>%{x|%b %Y}</b><br>Net: %{y:.1f}k<extra></extra>"),
-            secondary_y=use_pct)
-    if not use_pct:
-        _add_price(fig, d, secondary_y=True)
-    left_lbl  = "% of OI" if use_pct else "k lots"
-    right_lbl = "Net (k lots)" if use_pct else "Price"
-    right_clr = color if use_pct else C_PRICE
-    fig.update_layout(**_BASE, height=380,
-        title=dict(text=f"{lbl}  ·  Long / Short ({left_lbl})  |  Net (k lots)",
-                   font=dict(size=12, color="#333"), x=0),
-        margin=dict(l=52, r=55, t=42, b=72),
-        legend=dict(orientation="h", y=-0.22, x=0.5, xanchor="center", font_size=10),
-        xaxis=dict(**_ax(x=True), tickformat="%b '%y"))
-    fig.update_yaxes(title_text=left_lbl, title_font_size=10, secondary_y=False, **_ax())
-    fig.update_yaxes(title_text=right_lbl, title_font_size=10, secondary_y=True,
-                     showgrid=False, tickfont=dict(size=10, color=right_clr))
-    st.plotly_chart(fig, use_container_width=True)
+            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Net: %{{y:.1f}}{suffix}<extra></extra>")})
+    st.plotly_chart(timeseries(d, traces, f"{lbl}  ·  {ylabel}", ylabel), use_container_width=True)
 
-    # Combined weekly bars
-    st.plotly_chart(bars_combined(d, lc, sc, nc, f"{lbl} — weekly changes  ·  k lots", color),
+    # Stacked Long Add/Liq + Short Add/Cover bars + Price
+    st.plotly_chart(bars_combined(d, lc, sc, nc, f"{lbl} — weekly flow  ·  k lots", color),
                     use_container_width=True)
 
     with st.expander("Seasonality", expanded=False):
