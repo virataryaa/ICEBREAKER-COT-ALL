@@ -310,14 +310,32 @@ def histogram_dist(d, col, color, title):
     return fig
 
 def seasonal(d, col, color, title):
+    if d.empty or col not in d.columns:
+        return go.Figure().update_layout(**_BASE, height=340,
+            title=dict(text=f"Seasonality — {title}  (no data)", font=dict(size=11,color="#999"), x=0))
     s = d[["Date", col]].copy()
     s["v"]    = s[col] / 1000
     s["Week"] = s["Date"].dt.isocalendar().week.astype(int)
-    s["Year"] = s["Date"].dt.year
+    s["Year"] = s["Date"].dt.year.astype(int)
     pivot = s.pivot_table(index="Week", columns="Year", values="v", aggfunc="mean")
     pivot = pivot[pivot.index <= 52]
     cur_year  = int(s["Year"].max())
-    hist      = pivot[[c for c in pivot.columns if c < cur_year]]
+    hist      = pivot[[c for c in pivot.columns if int(c) < cur_year]]
+    if hist.empty or hist.shape[1] == 0:
+        # Only current-year data — just show current year line, no band
+        fig = go.Figure()
+        if cur_year in pivot.columns:
+            cy = pivot[cur_year].dropna()
+            fig.add_trace(go.Scatter(x=cy.index, y=cy.values, mode="lines+markers",
+                name=str(cur_year), line=dict(color=color, width=2.5),
+                marker=dict(size=4.5, color=color)))
+        fig.update_layout(**_BASE, height=340,
+            title=dict(text=f"Seasonality — {title}  ·  k lots  (current year only)",
+                       font=dict(size=11,color="#999"), x=0),
+            margin=dict(l=50,r=20,t=42,b=60),
+            xaxis=dict(**_ax(), title_text="Week"),
+            yaxis=dict(**_ax(), title_text="k lots", title_font_size=10))
+        return fig
     p25, p75, med = hist.quantile(0.25,axis=1), hist.quantile(0.75,axis=1), hist.median(axis=1)
     r,g,b = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
 
