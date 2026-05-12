@@ -856,7 +856,7 @@ def _recap_html(df, signed=False, change_table=False, scroll=False):
     # Header row 1 — merged group headers
     h1 = '<tr><th class="idx sub"></th>'
     for g, span in groups:
-        bg = _CHANGE_BG if change_table else _RECAP_GROUP_BG.get(g, "#f9fafb")
+        bg = _RECAP_GROUP_BG.get(g, "#f9fafb")
         h1 += f'<th colspan="{span}" class="grp" style="background:{bg}">{g}</th>'
     h1 += '</tr>'
 
