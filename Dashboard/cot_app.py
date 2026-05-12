@@ -834,10 +834,10 @@ _CHANGE_BG = "#f9a8d4"
 _RECAP_CSS = """
 <style>
 .rtbl{border-collapse:collapse;font-size:.76rem;width:100%;font-family:-apple-system,sans-serif}
-.rtbl th,.rtbl td{border:1px solid #e5e7eb;padding:3px 8px;white-space:nowrap;text-align:right}
+.rtbl th,.rtbl td{border:1px solid #e5e7eb;padding:3px 8px;white-space:nowrap;text-align:center}
 .rtbl .grp{text-align:center;font-weight:700;font-size:.75rem;letter-spacing:.04em}
 .rtbl .idx{text-align:left;font-weight:600;color:#374151;background:#f9fafb;min-width:70px}
-.rtbl .sub{background:#f9fafb;font-size:.70rem;color:#555;font-weight:600}
+.rtbl .sub{background:#f9fafb;font-size:.70rem;color:#555;font-weight:600;text-align:center}
 .rtbl tbody tr:hover td{background:#f0f9ff!important}
 .rpos{color:#16a34a}.rneg{color:#dc2626}
 </style>
@@ -971,14 +971,18 @@ def render_recap(d, report, color):
     if body.empty:
         st.warning("No data."); return
 
+    n_weeks = st.slider("Weeks to display", min_value=4, max_value=min(104, len(body)),
+                        value=min(20, len(body)), step=1, key="recap_weeks")
+    view = body.iloc[:n_weeks]
+
     with st.expander("Change summary  ·  k lots", expanded=True):
         st.markdown(_recap_html(summary, signed=True), unsafe_allow_html=True)
 
-    with st.expander("Historical positions  ·  k lots", expanded=True):
-        st.markdown(_recap_html(body), unsafe_allow_html=True)
+    with st.expander(f"Historical positions  ·  k lots  (last {n_weeks}w)", expanded=True):
+        st.markdown(_recap_html(view), unsafe_allow_html=True)
 
-    with st.expander("Weekly change  ·  k lots", expanded=True):
-        chg = body.diff(-1)
+    with st.expander(f"Weekly change  ·  k lots  (last {n_weeks}w)", expanded=True):
+        chg = view.diff(-1)
         st.markdown(_recap_html(chg, signed=True, change_table=True), unsafe_allow_html=True)
 
     if report == "CIT":
