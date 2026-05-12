@@ -176,7 +176,8 @@ def kpi_row(items: list, color: str):
 def _val(row, col, unit):
     v = row.get(col, np.nan)
     if pd.isna(v): return "—"
-    if unit == "k lots":
+    # Net positions are never meaningful as % of OI (can be negative)
+    if unit == "k lots" or (isinstance(col, str) and col.endswith("Net")):
         return f"{v/1000:.1f}k"
     pc = row.get(f"Pct OI {col}", np.nan)
     return f"{pc:.1f}%" if pd.notna(pc) else f"{v/1000:.1f}k"
@@ -197,7 +198,8 @@ def _px_kpi(curr_row, prev_row):
     return s, chg
 
 def _get_y(d, col, unit):
-    if unit == "k lots":
+    # Net columns always stay in k lots — % of OI is meaningless for a signed position
+    if unit == "k lots" or (isinstance(col, str) and col.endswith("Net")):
         return d[col] / 1000 if col in d.columns else pd.Series(dtype=float)
     pc = f"Pct OI {col}"
     if pc in d.columns: return d[pc]
@@ -430,78 +432,70 @@ DISAGG_SPEC = {
 
 def render_spec(d, report, color):
     cats = CIT_SPEC if report == "CIT" else DISAGG_SPEC
-    c1,c2,c3 = st.columns([2,2,1])
+    c1, c2 = st.columns([3, 1])
     with c1: cat  = st.selectbox("Category", list(cats.keys()), key="spec_cat")
-    with c2: view = st.radio("View", ["Net","Legs (Long + Short)"], horizontal=True, key="spec_view")
-    with c3: unit = st.radio("Unit", ["k lots","% of OI"], horizontal=True, key="spec_unit")
+    with c2: unit = st.radio("Unit", ["k lots","% of OI"], horizontal=True, key="spec_unit")
 
     cfg = cats[cat]
     lc, sc, nc, spc = cfg["long"], cfg["short"], cfg["net"], cfg["spread"]
+    r, g, b = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
 
-    latest = d.iloc[-1]
-    prev   = d.iloc[-2] if len(d)>1 else d.iloc[-1]
+    latest = d.iloc[-1]; prev = d.iloc[-2] if len(d)>1 else d.iloc[-1]
     pxv, pxchg = _px_kpi(latest, prev)
 
     kpi_items = [
-        (f"{cat} Long",  _val(latest,lc,unit), _chg(latest,prev,lc,unit)),
-        (f"{cat} Short", _val(latest,sc,unit), _chg(latest,prev,sc,unit)),
-        (f"{cat} Net",   _val(latest,nc,unit), _chg(latest,prev,nc,unit)),
+        ("Long",  _val(latest, lc, unit),       _chg(latest, prev, lc, unit)),
+        ("Short", _val(latest, sc, unit),       _chg(latest, prev, sc, unit)),
+        ("Net",   _val(latest, nc, "k lots"),   _chg(latest, prev, nc, "k lots")),
         ("Total OI", f"{latest.get('Total OI',np.nan)/1000:.1f}k"
                      if pd.notna(latest.get('Total OI')) else "—", ""),
         ("Price", pxv, pxchg),
     ]
     if spc and spc in d.columns:
-        kpi_items.insert(3, (f"Spread", _val(latest,spc,unit), _chg(latest,prev,spc,unit)))
+        kpi_items.insert(3, ("Spread", _val(latest, spc, unit), _chg(latest, prev, spc, unit)))
     kpi_row(kpi_items, color)
 
-    ylabel = "k lots" if unit=="k lots" else "% of OI"
-    r,g,b  = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
-
-    if view == "Net":
-        yn = _get_y(d, nc, unit)
-        traces = [{"trace": go.Scatter(
-            x=d["Date"], y=yn, name=f"{cat} Net",
-            fill="tozeroy",
-            fillcolor=f"rgba({r},{g},{b},0.08)",
+    # Combined Long + Short + Net chart — all in k lots (Net is never meaningful as % OI)
+    traces = []
+    if lc in d.columns:
+        traces.append({"trace": go.Scatter(x=d["Date"], y=d[lc]/1000, name="Long",
+            line=dict(color=C_LONG, width=2.0),
+            hovertemplate="<b>%{x|%b %Y}</b><br>Long: %{y:.1f}k<extra></extra>")})
+    if sc in d.columns:
+        traces.append({"trace": go.Scatter(x=d["Date"], y=d[sc]/1000, name="Short",
+            line=dict(color=C_SHORT, width=2.0),
+            hovertemplate="<b>%{x|%b %Y}</b><br>Short: %{y:.1f}k<extra></extra>")})
+    if nc in d.columns:
+        traces.append({"trace": go.Scatter(x=d["Date"], y=d[nc]/1000, name="Net",
+            fill="tozeroy", fillcolor=f"rgba({r},{g},{b},0.09)",
             line=dict(color=color, width=2.2),
-            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Net: %{{y:.1f}}<extra></extra>",
-        )}]
-        ch1, ch2 = st.columns([3,1])
-        with ch1: st.plotly_chart(timeseries(d,traces,f"{cat} Net  ·  {ylabel}",ylabel), use_container_width=True)
-        with ch2:
-            if nc in d.columns: st.plotly_chart(histogram_dist(d,nc,color,cat), use_container_width=True)
-        st.plotly_chart(bars_weekly(d, nc, f"{cat} Net — weekly Δ  ·  k lots"), use_container_width=True)
+            hovertemplate="<b>%{x|%b %Y}</b><br>Net: %{y:.1f}k<extra></extra>")})
+    if spc and spc in d.columns:
+        traces.append({"trace": go.Scatter(x=d["Date"], y=d[spc]/1000, name="Spread",
+            line=dict(color="#94a3b8", width=1.4, dash="dot"),
+            hovertemplate="<b>%{x|%b %Y}</b><br>Spread: %{y:.1f}k<extra></extra>")})
+    st.plotly_chart(timeseries(d, traces, f"{cat}  ·  Long / Short / Net  ·  k lots", "k lots"),
+                    use_container_width=True)
 
-    else:  # Legs
-        traces = []
-        if lc in d.columns:
-            yl = _get_y(d,lc,unit)
-            traces.append({"trace": go.Scatter(x=d["Date"],y=yl,name="Long",
-                line=dict(color=C_LONG,width=2.0),
-                hovertemplate="<b>%{x|%b %Y}</b><br>Long: %{y:.1f}<extra></extra>")})
-        if sc in d.columns:
-            ys = _get_y(d,sc,unit)
-            traces.append({"trace": go.Scatter(x=d["Date"],y=ys,name="Short",
-                line=dict(color=C_SHORT,width=2.0),
-                hovertemplate="<b>%{x|%b %Y}</b><br>Short: %{y:.1f}<extra></extra>")})
-        if spc and spc in d.columns:
-            traces.append({"trace": go.Scatter(x=d["Date"],y=d[spc]/1000,name="Spread",
-                line=dict(color="#94a3b8",width=1.4,dash="dot"),
-                hovertemplate="<b>%{x|%b %Y}</b><br>Spread: %{y:.1f}k<extra></extra>")})
-        st.plotly_chart(timeseries(d,traces,f"{cat} Legs  ·  {ylabel}",ylabel), use_container_width=True)
-        ch1,ch2 = st.columns(2)
-        with ch1:
-            if lc in d.columns: st.plotly_chart(bars_weekly(d,lc,f"{cat} Long — weekly Δ"), use_container_width=True)
-        with ch2:
-            if sc in d.columns: st.plotly_chart(bars_weekly(d,sc,f"{cat} Short — weekly Δ"), use_container_width=True)
+    # Weekly change bars — Long | Short | Net side by side
+    bar_items = [(lc, "Long", C_LONG), (sc, "Short", C_SHORT), (nc, "Net", color)]
+    avail = [(col, lbl, clr) for col, lbl, clr in bar_items if col in d.columns]
+    bcols = st.columns(len(avail))
+    for i, (col, lbl, clr) in enumerate(avail):
+        with bcols[i]:
+            st.plotly_chart(bars_weekly(d, col, f"{cat} {lbl} — weekly Δ  ·  k lots"),
+                            use_container_width=True)
 
     with st.expander("Seasonality", expanded=False):
-        scol = nc if view=="Net" else lc
-        if scol in d.columns:
-            st.plotly_chart(seasonal(d,scol,color,f"{cat} · {view}"), use_container_width=True)
+        seas_items = [(lc, C_LONG, "Long"), (sc, C_SHORT, "Short"), (nc, color, "Net")]
+        avail_s = [(col, clr, lbl) for col, clr, lbl in seas_items if col in d.columns]
+        scols = st.columns(len(avail_s))
+        for ch, (col, clr, lbl) in zip(scols, avail_s):
+            with ch:
+                st.plotly_chart(seasonal(d, col, clr, f"{cat} {lbl}"), use_container_width=True)
 
-    show_table(d, [lc,sc,nc,spc,"Total OI","Px"],
-               [nc], f"Data table — {cat} ({ylabel})")
+    show_table(d, [lc, sc, nc] + ([spc] if spc else []) + ["Total OI", "Px"],
+               [nc], f"Data table — {cat}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -513,51 +507,55 @@ def render_commercial(d, report, color):
     sc  = "Producer Short" if is_disagg else "Comm Short"
     nc  = "Comm Net"
     lbl = "Producer/Merchant" if is_disagg else "Commercial"
+    r, g, b = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
 
     unit = st.radio("Unit", ["k lots","% of OI"], horizontal=True, key="comm_unit")
     latest = d.iloc[-1]; prev = d.iloc[-2] if len(d)>1 else d.iloc[-1]
     pxv, pxchg = _px_kpi(latest, prev)
 
     kpi_items = [
-        (f"{lbl} Long",  _val(latest,lc,unit), _chg(latest,prev,lc,unit)),
-        (f"{lbl} Short", _val(latest,sc,unit), _chg(latest,prev,sc,unit)),
-        (f"{lbl} Net",   _val(latest,nc,unit), _chg(latest,prev,nc,unit)),
+        ("Long",  _val(latest, lc, unit),       _chg(latest, prev, lc, unit)),
+        ("Short", _val(latest, sc, unit),       _chg(latest, prev, sc, unit)),
+        ("Net",   _val(latest, nc, "k lots"),   _chg(latest, prev, nc, "k lots")),
         ("Total OI", f"{latest.get('Total OI',np.nan)/1000:.1f}k"
                      if pd.notna(latest.get('Total OI')) else "—", ""),
         ("Price", pxv, pxchg),
     ]
     kpi_row(kpi_items, color)
 
-    ylabel = "k lots" if unit=="k lots" else "% of OI"
-    r,g,b  = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
-    yl = _get_y(d,lc,unit); ys = _get_y(d,sc,unit); yn = _get_y(d,nc,unit)
-
-    traces = [
-        {"trace": go.Scatter(x=d["Date"],y=yl,name="Long",
-            line=dict(color=C_LONG,width=2.0),
-            hovertemplate="<b>%{x|%b %Y}</b><br>Long: %{y:.1f}<extra></extra>")},
-        {"trace": go.Scatter(x=d["Date"],y=ys,name="Short",
-            line=dict(color=C_SHORT,width=2.0),
-            hovertemplate="<b>%{x|%b %Y}</b><br>Short: %{y:.1f}<extra></extra>")},
-        {"trace": go.Scatter(x=d["Date"],y=yn,name="Net",
+    # Combined Long + Short + Net — all k lots
+    traces = []
+    for col, name, clr in [(lc, "Long", C_LONG), (sc, "Short", C_SHORT)]:
+        if col in d.columns:
+            traces.append({"trace": go.Scatter(x=d["Date"], y=d[col]/1000, name=name,
+                line=dict(color=clr, width=2.0),
+                hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{name}: %{{y:.1f}}k<extra></extra>")})
+    if nc in d.columns:
+        traces.append({"trace": go.Scatter(x=d["Date"], y=d[nc]/1000, name="Net",
             fill="tozeroy", fillcolor=f"rgba({r},{g},{b},0.07)",
-            line=dict(color=color,width=2.2),
-            hovertemplate="<b>%{x|%b %Y}</b><br>Net: %{y:.1f}<extra></extra>")},
-    ]
-    ch1,ch2 = st.columns([3,1])
-    with ch1: st.plotly_chart(timeseries(d,traces,f"{lbl} Long / Short  ·  {ylabel}",ylabel), use_container_width=True)
-    with ch2: st.plotly_chart(histogram_dist(d,nc,color,lbl), use_container_width=True)
+            line=dict(color=color, width=2.2),
+            hovertemplate="<b>%{x|%b %Y}</b><br>Net: %{y:.1f}k<extra></extra>")})
+    st.plotly_chart(timeseries(d, traces, f"{lbl}  ·  Long / Short / Net  ·  k lots", "k lots"),
+                    use_container_width=True)
 
-    ch1,ch2 = st.columns(2)
-    with ch1: st.plotly_chart(bars_weekly(d,lc,f"{lbl} Long — weekly Δ"), use_container_width=True)
-    with ch2: st.plotly_chart(bars_weekly(d,sc,f"{lbl} Short — weekly Δ"), use_container_width=True)
+    # Weekly change bars — Long | Short | Net
+    bar_items = [(lc, "Long", C_LONG), (sc, "Short", C_SHORT), (nc, "Net", color)]
+    avail = [(col, lbl_b, clr) for col, lbl_b, clr in bar_items if col in d.columns]
+    bcols = st.columns(len(avail))
+    for i, (col, lbl_b, clr) in enumerate(avail):
+        with bcols[i]:
+            st.plotly_chart(bars_weekly(d, col, f"{lbl} {lbl_b} — weekly Δ  ·  k lots"),
+                            use_container_width=True)
 
     with st.expander("Seasonality", expanded=False):
-        ch1,ch2 = st.columns(2)
-        with ch1: st.plotly_chart(seasonal(d,lc,C_LONG,f"{lbl} Long"), use_container_width=True)
-        with ch2: st.plotly_chart(seasonal(d,sc,C_SHORT,f"{lbl} Short"), use_container_width=True)
+        seas = [(lc, C_LONG, "Long"), (sc, C_SHORT, "Short"), (nc, color, "Net")]
+        avail_s = [(col, clr, name) for col, clr, name in seas if col in d.columns]
+        scols = st.columns(len(avail_s))
+        for ch, (col, clr, name) in zip(scols, avail_s):
+            with ch:
+                st.plotly_chart(seasonal(d, col, clr, f"{lbl} {name}"), use_container_width=True)
 
-    show_table(d, [lc,sc,nc,"Total OI","Px"], [nc], f"Data table — {lbl}")
+    show_table(d, [lc, sc, nc, "Total OI", "Px"], [nc], f"Data table — {lbl}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
