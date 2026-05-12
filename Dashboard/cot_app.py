@@ -352,9 +352,10 @@ def seasonal(d, col, color, title):
     return fig
 
 def scatter_2d(d, x_col, y_col, color, title, xlabel, ylabel):
-    x = d[x_col].pct_change().values*100 if x_col=="Px" else d[x_col].diff().values/1000
-    y = d[y_col].diff().values/1000
-    dates = d["Date"].values
+    xraw = d[x_col].pct_change()*100 if x_col=="Px" else d[x_col].diff()/1000
+    x = np.asarray(xraw, dtype=float)
+    y = np.asarray(d[y_col].diff()/1000, dtype=float)
+    dates = np.asarray(d["Date"])
     mask = ~(np.isnan(x)|np.isnan(y))
     x,y,dates = x[mask],y[mask],dates[mask]
     if len(x)<5: return go.Figure().update_layout(**_BASE, height=340)
@@ -881,7 +882,9 @@ def render_analysis(d, report, color):
                 use_container_width=True)
         with ch2:
             # Level scatter
-            x = d["Px"].values; y = d[sel].values/1000; dates = d["Date"].values
+            x = np.asarray(d["Px"], dtype=float)
+            y = np.asarray(d[sel], dtype=float) / 1000
+            dates = np.asarray(d["Date"])
             mask = ~(np.isnan(x)|np.isnan(y))
             if mask.sum()>=5:
                 r2 = float(np.corrcoef(x[mask],y[mask])[0,1]**2)
