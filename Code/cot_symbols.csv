@@ -1,0 +1,17 @@
+Commodity,Report,Version,ICE_COT_Symbol,ICE_PX_Symbol,Notes
+KC,CIT,FutOpt,KC #COMB-CFTC,%KC 1!,Arabica Coffee (CFTC Supplemental)
+CC,CIT,FutOpt,CC #COMB-CFTC,%CC 1!,Cocoa (CFTC Supplemental)
+SB,CIT,FutOpt,SB #COMB-CFTC,%SB 1!,Sugar #11 (CFTC Supplemental)
+CT,CIT,FutOpt,CT #COMB-CFTC,%CT 1!,Cotton #2 (CFTC Supplemental)
+KC,Disagg,FutOpt,KC #COMB-CFTC,%KC 1!,Arabica Coffee - ICE US
+CC,Disagg,FutOpt,CC #COMB-CFTC,%CC 1!,Cocoa - ICE US
+SB,Disagg,FutOpt,SB #COMB-CFTC,%SB 1!,Sugar #11 - ICE US
+CT,Disagg,FutOpt,CT #COMB-CFTC,%CT 1!,Cotton #2 - ICE US
+RC,Disagg,FutOpt,RC.ICE #COMB-CFTC,%RC 1!-ICE,Robusta Coffee - ICE London
+LCC,Disagg,FutOpt,C.ICE #COMB-CFTC,%C 1!-ICE,Cocoa London - ICE London
+KC,Disagg,Fut,KC #FUT-CFTC,%KC 1!,Arabica Coffee futures-only
+CC,Disagg,Fut,CC #FUT-CFTC,%CC 1!,Cocoa futures-only
+SB,Disagg,Fut,SB #FUT-CFTC,%SB 1!,Sugar #11 futures-only
+CT,Disagg,Fut,CT #FUT-CFTC,%CT 1!,Cotton #2 futures-only
+RC,Disagg,Fut,RC.ICE #FUT-CFTC,%RC 1!-ICE,Robusta Coffee futures-only
+LCC,Disagg,Fut,C.ICE #FUT-CFTC,%C 1!-ICE,Cocoa London futures-only

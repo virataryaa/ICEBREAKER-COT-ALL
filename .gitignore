@@ -1,0 +1,14 @@
+# Excel verification file (temporary)
+Database/cot_verify.xlsx
+
+# Logs
+Automator/run_log.txt
+Automator/pain_trade_log.txt
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Jupyter
+.ipynb_checkpoints/

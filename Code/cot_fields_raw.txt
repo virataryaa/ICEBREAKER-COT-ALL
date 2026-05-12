@@ -1,0 +1,18 @@
+
+======================================================================
+  KC #COMB-CFTC
+======================================================================
+  get_fields failed: module 'icepython' has no attribute 'get_fields'
+  Trying get_field_list...
+  get_field_list also failed: module 'icepython' has no attribute 'get_field_list'
+  Falling back to timeseries inspect...
+  Sample timeseries rows[0]: ('Time', 'KC #COMB-CFTC.Open Interest All Close')
+
+======================================================================
+  KC #FUT-CFTC
+======================================================================
+  get_fields failed: module 'icepython' has no attribute 'get_fields'
+  Trying get_field_list...
+  get_field_list also failed: module 'icepython' has no attribute 'get_field_list'
+  Falling back to timeseries inspect...
+  Sample timeseries rows[0]: ('Time', 'KC #FUT-CFTC.Open Interest All Close')
