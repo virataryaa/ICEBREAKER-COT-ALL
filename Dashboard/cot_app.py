@@ -209,12 +209,14 @@ def _get_y(d, col, unit):
 
 def show_table(d: pd.DataFrame, pos_cols: list, chg_cols: list, label: str, n=60):
     with st.expander(label, expanded=False):
-        avail_p = [c for c in pos_cols if c in d.columns]
-        avail_c = [c for c in chg_cols if c in d.columns]
+        avail_p = [c for c in pos_cols if c and c in d.columns]
+        avail_c = [c for c in chg_cols if c and c in d.columns]
         tbl = d[["Date"] + avail_p].copy().sort_values("Date", ascending=False).head(n)
         tbl["Date"] = pd.to_datetime(tbl["Date"]).dt.strftime("%d %b '%y")
         for c in avail_c:
             tbl[f"Δ {c}"] = d[c].diff().reindex(tbl.index)
+        if "Px" in avail_p:
+            tbl["Px Δ%"] = (d["Px"].pct_change() * 100).reindex(tbl.index).round(2)
         tbl = tbl.reset_index(drop=True)
         num_cols = [c for c in tbl.columns if c != "Date"]
 
@@ -229,11 +231,18 @@ def show_table(d: pd.DataFrame, pos_cols: list, chg_cols: list, label: str, n=60
                 except: styles.append("")
             return styles
 
-        fmt = {c: "{:,.0f}" for c in num_cols if "Pct" not in c and "%" not in c}
-        fmt.update({c: "{:.2f}%" for c in num_cols if "Pct" in c or c == "Px"})
+        fmt = {c: "{:,.0f}" for c in num_cols
+               if "Pct" not in c and c not in ("Px", "Px Δ%") and not c.startswith("Δ")}
+        fmt.update({c: "{:.1f}%" for c in num_cols if "Pct" in c})
+        fmt["Px"]    = "{:.2f}"   if "Px"    in num_cols else None
+        fmt["Px Δ%"] = "{:+.2f}%" if "Px Δ%" in num_cols else None
+        fmt.update({f"Δ {c}": "{:+,.0f}" for c in avail_c if f"Δ {c}" in num_cols})
+        fmt = {k: v for k, v in fmt.items() if v and k in num_cols}
+
+        delta_cols = [c for c in num_cols if c.startswith("Δ") or c == "Px Δ%"]
         styled = (tbl.style
                   .format(fmt, na_rep="—")
-                  .apply(_style, subset=[c for c in num_cols if c.startswith("Δ")])
+                  .apply(_style, subset=delta_cols if delta_cols else [])
                   .hide(axis="index"))
         st.dataframe(styled, use_container_width=True, height=380)
 
@@ -288,6 +297,39 @@ def bars_weekly(d, col, title, n=13):
         bargap=0.18, showlegend=False,
     )
     return fig
+
+def bars_combined(d, lc, sc, nc, title, color, n=13):
+    tail  = d.tail(n + 1)
+    dates = tail["Date"].iloc[1:]
+    lchg  = np.asarray(tail[lc].diff().iloc[1:] / 1000, dtype=float) if lc in d.columns else None
+    schg  = np.asarray(tail[sc].diff().iloc[1:] / 1000, dtype=float) if sc in d.columns else None
+    nchg  = np.asarray(tail[nc].diff().iloc[1:] / 1000, dtype=float) if nc in d.columns else None
+    fig   = go.Figure()
+    if lchg is not None:
+        fig.add_trace(go.Bar(x=dates, y=lchg, name="Long Δ",
+            marker=dict(color=[C_LONG if v >= 0 else "#fca5a5" for v in lchg],
+                        opacity=0.85, line=dict(width=0)),
+            hovertemplate="<b>%{x|%d %b %y}</b><br>Long Δ: %{y:+.1f}k<extra></extra>"))
+    if schg is not None:
+        fig.add_trace(go.Bar(x=dates, y=schg, name="Short Δ",
+            marker=dict(color=[C_SHORT if v >= 0 else "#86efac" for v in schg],
+                        opacity=0.85, line=dict(width=0)),
+            hovertemplate="<b>%{x|%d %b %y}</b><br>Short Δ: %{y:+.1f}k<extra></extra>"))
+    if nchg is not None:
+        fig.add_trace(go.Scatter(x=dates, y=nchg, name="Net Δ", mode="lines+markers",
+            line=dict(color=color, width=2.2, dash="dot"),
+            marker=dict(size=6, color=color, line=dict(width=1, color="white")),
+            hovertemplate="<b>%{x|%d %b %y}</b><br>Net Δ: %{y:+.1f}k<extra></extra>"))
+    fig.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.14)")
+    fig.update_layout(**_BASE, height=310, barmode="group",
+        title=dict(text=title, font=dict(size=11, color="#444"), x=0),
+        margin=dict(l=50, r=12, t=36, b=72),
+        legend=dict(orientation="h", y=-0.26, x=0.5, xanchor="center", font_size=10),
+        xaxis=dict(**_ax(x=True), tickformat="%d %b '%y"),
+        yaxis=dict(**_ax(), title_text="k lots", title_font_size=10),
+        bargap=0.18, bargroupgap=0.05)
+    return fig
+
 
 def histogram_dist(d, col, color, title):
     chg = (d[col] / 1000).diff().dropna()
@@ -455,36 +497,52 @@ def render_spec(d, report, color):
         kpi_items.insert(3, ("Spread", _val(latest, spc, unit), _chg(latest, prev, spc, unit)))
     kpi_row(kpi_items, color)
 
-    # Combined Long + Short + Net chart — all in k lots (Net is never meaningful as % OI)
-    traces = []
+    # Combined chart — Long/Short in selected unit (left), Net k lots (right when % OI), Price secondary
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    use_pct = unit == "% of OI"
     if lc in d.columns:
-        traces.append({"trace": go.Scatter(x=d["Date"], y=d[lc]/1000, name="Long",
+        yl = _get_y(d, lc, unit)
+        fig.add_trace(go.Scatter(x=d["Date"], y=yl, name="Long",
             line=dict(color=C_LONG, width=2.0),
-            hovertemplate="<b>%{x|%b %Y}</b><br>Long: %{y:.1f}k<extra></extra>")})
+            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Long: %{{y:.{'2f' if use_pct else '1f'}}}"
+                          f"{'%' if use_pct else 'k'}<extra></extra>"), secondary_y=False)
     if sc in d.columns:
-        traces.append({"trace": go.Scatter(x=d["Date"], y=d[sc]/1000, name="Short",
+        ys = _get_y(d, sc, unit)
+        fig.add_trace(go.Scatter(x=d["Date"], y=ys, name="Short",
             line=dict(color=C_SHORT, width=2.0),
-            hovertemplate="<b>%{x|%b %Y}</b><br>Short: %{y:.1f}k<extra></extra>")})
+            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Short: %{{y:.{'2f' if use_pct else '1f'}}}"
+                          f"{'%' if use_pct else 'k'}<extra></extra>"), secondary_y=False)
     if nc in d.columns:
-        traces.append({"trace": go.Scatter(x=d["Date"], y=d[nc]/1000, name="Net",
+        net_sy = use_pct  # when % OI, put Net on right axis to avoid scale conflict
+        fig.add_trace(go.Scatter(x=d["Date"], y=d[nc]/1000, name="Net (k lots)",
             fill="tozeroy", fillcolor=f"rgba({r},{g},{b},0.09)",
             line=dict(color=color, width=2.2),
-            hovertemplate="<b>%{x|%b %Y}</b><br>Net: %{y:.1f}k<extra></extra>")})
+            hovertemplate="<b>%{x|%b %Y}</b><br>Net: %{y:.1f}k<extra></extra>"),
+            secondary_y=net_sy)
     if spc and spc in d.columns:
-        traces.append({"trace": go.Scatter(x=d["Date"], y=d[spc]/1000, name="Spread",
+        fig.add_trace(go.Scatter(x=d["Date"], y=d[spc]/1000, name="Spread (k lots)",
             line=dict(color="#94a3b8", width=1.4, dash="dot"),
-            hovertemplate="<b>%{x|%b %Y}</b><br>Spread: %{y:.1f}k<extra></extra>")})
-    st.plotly_chart(timeseries(d, traces, f"{cat}  ·  Long / Short / Net  ·  k lots", "k lots"),
-                    use_container_width=True)
+            hovertemplate="<b>%{x|%b %Y}</b><br>Spread: %{y:.1f}k<extra></extra>"),
+            secondary_y=use_pct)
+    if not use_pct:
+        _add_price(fig, d, secondary_y=True)
+    left_lbl  = "% of OI" if use_pct else "k lots"
+    right_lbl = "Net (k lots)" if use_pct else "Price"
+    right_clr = color if use_pct else C_PRICE
+    fig.update_layout(**_BASE, height=380,
+        title=dict(text=f"{cat}  ·  Long / Short ({left_lbl})  |  Net (k lots)",
+                   font=dict(size=12, color="#333"), x=0),
+        margin=dict(l=52, r=55, t=42, b=72),
+        legend=dict(orientation="h", y=-0.22, x=0.5, xanchor="center", font_size=10),
+        xaxis=dict(**_ax(x=True), tickformat="%b '%y"))
+    fig.update_yaxes(title_text=left_lbl, title_font_size=10, secondary_y=False, **_ax())
+    fig.update_yaxes(title_text=right_lbl, title_font_size=10, secondary_y=True,
+                     showgrid=False, tickfont=dict(size=10, color=right_clr))
+    st.plotly_chart(fig, use_container_width=True)
 
-    # Weekly change bars — Long | Short | Net side by side
-    bar_items = [(lc, "Long", C_LONG), (sc, "Short", C_SHORT), (nc, "Net", color)]
-    avail = [(col, lbl, clr) for col, lbl, clr in bar_items if col in d.columns]
-    bcols = st.columns(len(avail))
-    for i, (col, lbl, clr) in enumerate(avail):
-        with bcols[i]:
-            st.plotly_chart(bars_weekly(d, col, f"{cat} {lbl} — weekly Δ  ·  k lots"),
-                            use_container_width=True)
+    # Combined weekly change bars (Long + Short grouped, Net dotted line)
+    st.plotly_chart(bars_combined(d, lc, sc, nc, f"{cat} — weekly changes  ·  k lots", color),
+                    use_container_width=True)
 
     with st.expander("Seasonality", expanded=False):
         seas_items = [(lc, C_LONG, "Long"), (sc, C_SHORT, "Short"), (nc, color, "Net")]
@@ -494,8 +552,8 @@ def render_spec(d, report, color):
             with ch:
                 st.plotly_chart(seasonal(d, col, clr, f"{cat} {lbl}"), use_container_width=True)
 
-    show_table(d, [lc, sc, nc] + ([spc] if spc else []) + ["Total OI", "Px"],
-               [nc], f"Data table — {cat}")
+    show_table(d, [lc, sc, nc] + ([spc] if spc else []) + ["Px"],
+               [lc, sc, nc], f"Data table — {cat}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -523,29 +581,41 @@ def render_commercial(d, report, color):
     ]
     kpi_row(kpi_items, color)
 
-    # Combined Long + Short + Net — all k lots
-    traces = []
+    # Combined chart — Long/Short in selected unit (left), Net k lots (right when % OI)
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    use_pct = unit == "% of OI"
     for col, name, clr in [(lc, "Long", C_LONG), (sc, "Short", C_SHORT)]:
         if col in d.columns:
-            traces.append({"trace": go.Scatter(x=d["Date"], y=d[col]/1000, name=name,
+            y = _get_y(d, col, unit)
+            fig.add_trace(go.Scatter(x=d["Date"], y=y, name=name,
                 line=dict(color=clr, width=2.0),
-                hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{name}: %{{y:.1f}}k<extra></extra>")})
+                hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{name}: %{{y:.{'2f' if use_pct else '1f'}}}"
+                              f"{'%' if use_pct else 'k'}<extra></extra>"), secondary_y=False)
     if nc in d.columns:
-        traces.append({"trace": go.Scatter(x=d["Date"], y=d[nc]/1000, name="Net",
+        fig.add_trace(go.Scatter(x=d["Date"], y=d[nc]/1000, name="Net (k lots)",
             fill="tozeroy", fillcolor=f"rgba({r},{g},{b},0.07)",
             line=dict(color=color, width=2.2),
-            hovertemplate="<b>%{x|%b %Y}</b><br>Net: %{y:.1f}k<extra></extra>")})
-    st.plotly_chart(timeseries(d, traces, f"{lbl}  ·  Long / Short / Net  ·  k lots", "k lots"),
-                    use_container_width=True)
+            hovertemplate="<b>%{x|%b %Y}</b><br>Net: %{y:.1f}k<extra></extra>"),
+            secondary_y=use_pct)
+    if not use_pct:
+        _add_price(fig, d, secondary_y=True)
+    left_lbl  = "% of OI" if use_pct else "k lots"
+    right_lbl = "Net (k lots)" if use_pct else "Price"
+    right_clr = color if use_pct else C_PRICE
+    fig.update_layout(**_BASE, height=380,
+        title=dict(text=f"{lbl}  ·  Long / Short ({left_lbl})  |  Net (k lots)",
+                   font=dict(size=12, color="#333"), x=0),
+        margin=dict(l=52, r=55, t=42, b=72),
+        legend=dict(orientation="h", y=-0.22, x=0.5, xanchor="center", font_size=10),
+        xaxis=dict(**_ax(x=True), tickformat="%b '%y"))
+    fig.update_yaxes(title_text=left_lbl, title_font_size=10, secondary_y=False, **_ax())
+    fig.update_yaxes(title_text=right_lbl, title_font_size=10, secondary_y=True,
+                     showgrid=False, tickfont=dict(size=10, color=right_clr))
+    st.plotly_chart(fig, use_container_width=True)
 
-    # Weekly change bars — Long | Short | Net
-    bar_items = [(lc, "Long", C_LONG), (sc, "Short", C_SHORT), (nc, "Net", color)]
-    avail = [(col, lbl_b, clr) for col, lbl_b, clr in bar_items if col in d.columns]
-    bcols = st.columns(len(avail))
-    for i, (col, lbl_b, clr) in enumerate(avail):
-        with bcols[i]:
-            st.plotly_chart(bars_weekly(d, col, f"{lbl} {lbl_b} — weekly Δ  ·  k lots"),
-                            use_container_width=True)
+    # Combined weekly bars
+    st.plotly_chart(bars_combined(d, lc, sc, nc, f"{lbl} — weekly changes  ·  k lots", color),
+                    use_container_width=True)
 
     with st.expander("Seasonality", expanded=False):
         seas = [(lc, C_LONG, "Long"), (sc, C_SHORT, "Short"), (nc, color, "Net")]
@@ -555,7 +625,7 @@ def render_commercial(d, report, color):
             with ch:
                 st.plotly_chart(seasonal(d, col, clr, f"{lbl} {name}"), use_container_width=True)
 
-    show_table(d, [lc, sc, nc, "Total OI", "Px"], [nc], f"Data table — {lbl}")
+    show_table(d, [lc, sc, nc, "Px"], [lc, sc, nc], f"Data table — {lbl}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
