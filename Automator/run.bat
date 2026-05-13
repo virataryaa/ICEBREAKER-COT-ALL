@@ -21,6 +21,15 @@ if %ERRORLEVEL% NEQ 0 (
     goto notify
 )
 
+:: Step 1b — Sync Rollex and Roll Yield from master database folders
+echo [1b] Syncing Rollex parquets... >> "%LOG%"
+xcopy /Y "C:\Users\virat.arya\ETG\SoftsDatabase - Documents\Database\Hardmine\ICEBREAKER\Rollex\Database\rollex_*.parquet" "C:\Users\virat.arya\ETG\SoftsDatabase - Documents\Database\Hardmine\ICEBREAKER\COT_ALL\Database\Rollex\" >> "%LOG%" 2>&1
+if %ERRORLEVEL% NEQ 0 echo WARNING: Rollex sync had issues >> "%LOG%"
+
+echo [1b] Syncing Roll Yield parquet... >> "%LOG%"
+xcopy /Y "C:\Users\virat.arya\ETG\SoftsDatabase - Documents\Database\Hardmine\ICEBREAKER\Roll Yield\Database\roll_yield_data.parquet" "C:\Users\virat.arya\ETG\SoftsDatabase - Documents\Database\Hardmine\ICEBREAKER\COT_ALL\Database\RollYield\" >> "%LOG%" 2>&1
+if %ERRORLEVEL% NEQ 0 echo WARNING: Roll Yield sync had issues >> "%LOG%"
+
 :: Step 2 — Push updated parquets to GitHub
 echo [2] Pushing to GitHub... >> "%LOG%"
 cd /d "%REPO%"
@@ -29,7 +38,7 @@ if %ERRORLEVEL% NEQ 0 (
     set GIT_STATUS=failed
     goto notify
 )
-git add Database\cot_cit.parquet Database\cot_disagg_futopt.parquet Database\cot_disagg_fut.parquet >> "%LOG%" 2>&1
+git add Database\cot_cit.parquet Database\cot_disagg_futopt.parquet Database\cot_disagg_fut.parquet Database\Rollex\rollex_*.parquet Database\RollYield\roll_yield_data.parquet >> "%LOG%" 2>&1
 git diff --cached --quiet
 if %ERRORLEVEL% NEQ 0 (
     git -c core.askpass= commit -m "Auto update: COT_ALL %date%" >> "%LOG%" 2>&1

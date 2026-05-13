@@ -33,10 +33,19 @@ st.markdown("""
 </style>""", unsafe_allow_html=True)
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-DB_DIR   = Path(__file__).resolve().parent.parent / "Database"
-CIT_FILE = DB_DIR / "cot_cit.parquet"
-FO_FILE  = DB_DIR / "cot_disagg_futopt.parquet"
-FUT_FILE = DB_DIR / "cot_disagg_fut.parquet"
+DB_DIR      = Path(__file__).resolve().parent.parent / "Database"
+CIT_FILE    = DB_DIR / "cot_cit.parquet"
+FO_FILE     = DB_DIR / "cot_disagg_futopt.parquet"
+FUT_FILE    = DB_DIR / "cot_disagg_fut.parquet"
+ROLLEX_DIR  = DB_DIR / "Rollex"
+ROLLEX_MAP  = {
+    "KC": "rollex_KC.parquet",
+    "CC": "rollex_CC.parquet",
+    "CT": "rollex_CT.parquet",
+    "SB": "rollex_SB.parquet",
+    "RC": "rollex_RC.parquet",
+    "LCC":"rollex_LCC.parquet",
+}
 
 # ── Commodity config ──────────────────────────────────────────────────────────
 COMM_COLORS = {
@@ -58,6 +67,14 @@ C_NET   = "#1a56db"
 C_PRICE = "#f59e0b"
 C_OLD   = "#e67e22"
 C_NEW   = "#2980b9"
+GRAY    = "#6e6e73"
+
+CROP_START_MONTH = 9
+_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+CROP_WEEK_TICKS  = {1:"Sep",5:"Oct",9:"Nov",14:"Dec",18:"Jan",22:"Feb",
+                    26:"Mar",30:"Apr",35:"May",39:"Jun",43:"Jul",48:"Aug"}
+MONTH_TICKS      = {1:"Jan",5:"Feb",9:"Mar",14:"Apr",18:"May",23:"Jun",
+                    27:"Jul",32:"Aug",36:"Sep",40:"Oct",45:"Nov",49:"Dec"}
 
 # ── Plot base ─────────────────────────────────────────────────────────────────
 _BASE = dict(
@@ -147,6 +164,68 @@ def load_disagg(version: str) -> pd.DataFrame:
     df["Combined Spec Net"] = df["Combined Spec Long"] - df["Combined Spec Short"]
     df = _add_pct(df)
     return df.sort_values(["Commodity","Crop","Date"]).reset_index(drop=True)
+
+@st.cache_data(ttl=600)
+def load_options_only() -> pd.DataFrame:
+    """Options Only = F&O Combined minus Futures Only (numeric cols only)."""
+    fo  = pd.read_parquet(FO_FILE)
+    fut = pd.read_parquet(FUT_FILE)
+    fo["Date"]  = pd.to_datetime(fo["Date"])
+    fut["Date"] = pd.to_datetime(fut["Date"])
+    id_cols = ["Date","Commodity","Crop"]
+    num_fo  = [c for c in fo.columns  if c not in id_cols]
+    num_fut = [c for c in fut.columns if c not in id_cols]
+    num_both = [c for c in num_fo if c in num_fut]
+    merged = fo.merge(fut[id_cols + num_both], on=id_cols, how="left", suffixes=("","_fut"))
+    for c in num_both:
+        merged[c] = pd.to_numeric(merged[c], errors="coerce") - pd.to_numeric(merged[f"{c}_fut"], errors="coerce")
+        merged.drop(columns=[f"{c}_fut"], inplace=True)
+    df = merged.copy()
+    df = _derive_nets(df, df.columns)
+    for side in ("Long","Short"):
+        df[f"Combined Spec {side}"] = (
+            df.get(f"MM {side}", 0) + df.get(f"Other {side}", 0) +
+            df.get(f"Non Rep {side}", 0) + df.get(f"Swap {side}", 0))
+    df["Combined Spec Net"] = df["Combined Spec Long"] - df["Combined Spec Short"]
+    df = _add_pct(df)
+    # Trader counts and concentration % are not valid for options-only
+    # (trader overlap between fut/options means subtraction gives wrong counts;
+    #  concentration % uses different OI bases so subtracting is meaningless)
+    invalid_cols = [c for c in df.columns if
+                    c.startswith("Traders") or c.startswith("Conc")]
+    df[invalid_cols] = np.nan
+    return df.sort_values(["Commodity","Crop","Date"]).reset_index(drop=True)
+
+@st.cache_data(ttl=600)
+def load_rollex(commodity: str) -> pd.DataFrame:
+    fname = ROLLEX_MAP.get(commodity)
+    if fname is None:
+        return pd.DataFrame(columns=["Date","rollex_px","rollex_ret"])
+    path = ROLLEX_DIR / fname
+    if not path.exists():
+        return pd.DataFrame(columns=["Date","rollex_px","rollex_ret"])
+    df = pd.read_parquet(path, columns=["rollex_px","rollex_ret"])
+    df.index = pd.to_datetime(df.index)
+    df.index.name = "Date"
+    df = df.reset_index()   # index named "Date" → column "Date"
+    return df.sort_values("Date").reset_index(drop=True)
+
+def _inject_rollex(cot_df: pd.DataFrame, commodity: str) -> pd.DataFrame:
+    """Replace Px with rollex_px via backward merge_asof on Date."""
+    rx = load_rollex(commodity)
+    if rx.empty:
+        return cot_df
+    cot_sorted = cot_df.sort_values("Date").copy()
+    merged = pd.merge_asof(
+        cot_sorted,
+        rx[["Date","rollex_px","rollex_ret"]],
+        on="Date",
+        direction="backward"
+    )
+    merged["Px"]         = merged["rollex_px"]
+    merged["Rollex_ret"] = merged["rollex_ret"]
+    merged = merged.drop(columns=["rollex_px","c1","rollex_ret"], errors="ignore")
+    return merged.reset_index(drop=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -251,9 +330,9 @@ def show_table(d: pd.DataFrame, pos_cols: list, chg_cols: list, label: str, n=60
 def _add_price(fig, d, secondary_y=True):
     if "Px" not in d.columns or d["Px"].isna().all(): return
     fig.add_trace(go.Scatter(
-        x=d["Date"], y=d["Px"], name="Price",
+        x=d["Date"], y=d["Px"], name="Rollex Px",
         line=dict(color=C_PRICE, width=1.2, dash="dot"), opacity=0.65,
-        hovertemplate="<b>%{x|%b %Y}</b><br>Price: %{y:.2f}<extra></extra>",
+        hovertemplate="<b>%{x|%b %Y}</b><br>Rollex Px: %{y:.2f}<extra></extra>",
     ), secondary_y=secondary_y)
 
 def timeseries(d, series, title, ylabel, height=360, price=True):
@@ -271,7 +350,7 @@ def timeseries(d, series, title, ylabel, height=360, price=True):
         xaxis=dict(**_ax(x=True), tickformat="%b '%y"),
     )
     fig.update_yaxes(title_text=ylabel, title_font_size=10, secondary_y=False, **_ax())
-    fig.update_yaxes(title_text="Price", title_font_size=10, secondary_y=True,
+    fig.update_yaxes(title_text="Rollex Px", title_font_size=10, secondary_y=True,
                      showgrid=False, tickfont=dict(size=10, color=C_PRICE))
     return fig
 
@@ -331,9 +410,9 @@ def bars_combined(d, lc, sc, nc, title, color, n=13):
 
     if "Px" in d.columns:
         px_vals = np.asarray(tail["Px"].iloc[1:], dtype=float)
-        fig.add_trace(go.Scatter(x=dates, y=px_vals, name="Price", mode="lines",
+        fig.add_trace(go.Scatter(x=dates, y=px_vals, name="Rollex Px", mode="lines",
             line=dict(color=C_PRICE, width=1.8),
-            hovertemplate="<b>%{x|%d %b %y}</b><br>Price: %{y:.2f}<extra></extra>"),
+            hovertemplate="<b>%{x|%d %b %y}</b><br>Rollex Px: %{y:.2f}<extra></extra>"),
             secondary_y=True)
 
     fig.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.14)")
@@ -344,7 +423,7 @@ def bars_combined(d, lc, sc, nc, title, color, n=13):
         xaxis=dict(**_ax(x=True), tickformat="%d %b '%y"),
         bargap=0.12)
     fig.update_yaxes(title_text="k lots", title_font_size=10, secondary_y=False, **_ax())
-    fig.update_yaxes(title_text="Price", title_font_size=10, secondary_y=True,
+    fig.update_yaxes(title_text="Rollex Px", title_font_size=10, secondary_y=True,
                      showgrid=False, tickfont=dict(size=10, color=C_PRICE))
     return fig
 
@@ -473,6 +552,59 @@ def scatter_2d(d, x_col, y_col, color, title, xlabel, ylabel):
     return fig
 
 
+def scatter_3d(x, y, z, dates, color, title, xlabel, ylabel, zlabel, height=540):
+    x, y, z = np.asarray(x, dtype=float), np.asarray(y, dtype=float), np.asarray(z, dtype=float)
+    dates    = np.asarray(dates, dtype="datetime64[ns]")
+    mask     = ~(np.isnan(x) | np.isnan(y) | np.isnan(z))
+    x, y, z, dates = x[mask], y[mask], z[mask], dates[mask]
+    if len(x) < 5:
+        return go.Figure().update_layout(height=height,
+            title=dict(text=title + "  [insufficient data]", font_size=12))
+    corr_xy = float(np.corrcoef(x, y)[0, 1])
+    corr_xz = float(np.corrcoef(x, z)[0, 1])
+    corr_yz = float(np.corrcoef(y, z)[0, 1])
+    rec  = (dates - dates.min()).astype("timedelta64[D]").astype(float)
+    nr   = rec / max(rec.max(), 1)
+    r, g, b = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
+    def _ax3(label, bg):
+        return dict(title=dict(text=label, font=dict(size=10, color="#555")),
+                    tickfont=dict(size=9, color="#777"),
+                    gridcolor="rgba(0,0,0,0.10)", gridwidth=1,
+                    showbackground=True, backgroundcolor=bg,
+                    zerolinecolor="rgba(0,0,0,0.20)", zerolinewidth=2)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter3d(x=x, y=y, z=z, mode="markers",
+        marker=dict(color=nr,
+            colorscale=[[0,"rgba(200,210,230,0.45)"],[1,f"rgba({r},{g},{b},0.9)"]],
+            size=5, line=dict(width=0.6, color="white")),
+        text=pd.to_datetime(dates).strftime("%Y-%m-%d"),
+        hovertemplate=(f"<b>%{{text}}</b><br>{xlabel}: %{{x:.2f}}<br>"
+                       f"{ylabel}: %{{y:.2f}}<br>{zlabel}: %{{z:.2f}}<extra></extra>"),
+        showlegend=False))
+    fig.add_trace(go.Scatter3d(x=[x[-1]], y=[y[-1]], z=[z[-1]], mode="markers",
+        showlegend=False,
+        marker=dict(symbol="diamond", size=10, color=C_SHORT,
+                    line=dict(width=1.5, color="white")),
+        hovertemplate=(f"<b>Latest</b><br>{xlabel}: {x[-1]:.2f}<br>"
+                       f"{ylabel}: {y[-1]:.2f}<br>{zlabel}: {z[-1]:.2f}<extra></extra>")))
+    corr_str = f"r(X,Y)={corr_xy:+.2f}  ·  r(X,Z)={corr_xz:+.2f}  ·  r(Y,Z)={corr_yz:+.2f}"
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="-apple-system,BlinkMacSystemFont,sans-serif", color="#2d2d2d", size=11),
+        title=dict(text=f"{title}<br><span style='font-size:10px;color:#888'>{corr_str}</span>",
+                   font=dict(size=12, color="#444"), x=0),
+        height=height, margin=dict(l=0, r=0, t=70, b=20),
+        scene=dict(
+            aspectmode="cube",
+            camera=dict(up=dict(x=0,y=0,z=1), center=dict(x=0,y=0,z=-0.1),
+                        eye=dict(x=1.6,y=1.6,z=0.8)),
+            xaxis=_ax3(xlabel, "rgba(240,244,255,0.6)"),
+            yaxis=_ax3(ylabel, "rgba(240,255,244,0.6)"),
+            zaxis=_ax3(zlabel, "rgba(255,248,240,0.6)"),
+        ))
+    return fig
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — SPEC
 # ══════════════════════════════════════════════════════════════════════════════
@@ -492,9 +624,8 @@ DISAGG_SPEC = {
 
 def render_spec(d, report, color):
     cats = CIT_SPEC if report == "CIT" else DISAGG_SPEC
-    c1, c2 = st.columns([3, 1])
-    with c1: cat  = st.selectbox("Category", list(cats.keys()), key="spec_cat")
-    with c2: unit = st.radio("Unit", ["k lots","% of OI"], horizontal=True, key="spec_unit")
+    cat  = st.selectbox("Category", list(cats.keys()), key="spec_cat")
+    unit = "k lots"
 
     cfg = cats[cat]
     lc, sc, nc, spc = cfg["long"], cfg["short"], cfg["net"], cfg["spread"]
@@ -509,7 +640,7 @@ def render_spec(d, report, color):
         ("Net",   _val(latest, nc, "k lots"),   _chg(latest, prev, nc, "k lots")),
         ("Total OI", f"{latest.get('Total OI',np.nan)/1000:.1f}k"
                      if pd.notna(latest.get('Total OI')) else "—", ""),
-        ("Price", pxv, pxchg),
+        ("Rollex Px", pxv, pxchg),
     ]
     if spc and spc in d.columns:
         kpi_items.insert(3, ("Spread", _val(latest, spc, unit), _chg(latest, prev, spc, unit)))
@@ -565,7 +696,7 @@ def render_commercial(d, report, color):
     lbl = "Producer/Merchant" if is_disagg else "Commercial"
     r, g, b = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
 
-    unit = st.radio("Unit", ["k lots","% of OI"], horizontal=True, key="comm_unit")
+    unit = "k lots"
     latest = d.iloc[-1]; prev = d.iloc[-2] if len(d)>1 else d.iloc[-1]
     pxv, pxchg = _px_kpi(latest, prev)
 
@@ -575,7 +706,7 @@ def render_commercial(d, report, color):
         ("Net",   _val(latest, nc, "k lots"),   _chg(latest, prev, nc, "k lots")),
         ("Total OI", f"{latest.get('Total OI',np.nan)/1000:.1f}k"
                      if pd.notna(latest.get('Total OI')) else "—", ""),
-        ("Price", pxv, pxchg),
+        ("Rollex Px", pxv, pxchg),
     ]
     kpi_row(kpi_items, color)
 
@@ -665,88 +796,273 @@ def render_spreading(d, color):
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 4 — OLD / NEW CROP (Disagg only)
 # ══════════════════════════════════════════════════════════════════════════════
+# ── Old/New helpers ───────────────────────────────────────────────────────────
+def _crop_year_label(dt, sm=CROP_START_MONTH):
+    y, m = dt.year, dt.month
+    return f"{str(y)[2:]}/{str(y+1)[2:]}" if m >= sm else f"{str(y-1)[2:]}/{str(y)[2:]}"
+
+def _crop_week_num(dt, sm=CROP_START_MONTH):
+    y = dt.year if dt.month >= sm else dt.year - 1
+    return max(1, (dt - pd.Timestamp(y, sm, 1)).days // 7 + 1)
+
+def _current_crop_year_label(sm=CROP_START_MONTH):
+    return _crop_year_label(pd.Timestamp.now(), sm)
+
+def _on_seasonal_wide(d_crops):
+    old   = d_crops[d_crops["Crop"]=="Old"].set_index("Date").sort_index()
+    other = d_crops[d_crops["Crop"]=="Other"].set_index("Date").sort_index()
+    common = old.index.intersection(other.index)
+    if common.empty: return pd.DataFrame()
+    old, other = old.loc[common], other.loc[common]
+    oi_sum = old["Total OI"] + other["Total OI"]
+    wide = pd.DataFrame({
+        "OI Old %":       old["Total OI"] / oi_sum * 100,
+        "MM Net Old":     old["MM Net"],     "MM Net New":   other["MM Net"],
+        "MM Long Old":    old["MM Long"],    "MM Long New":  other["MM Long"],
+        "MM Short Old":   old["MM Short"],   "MM Short New": other["MM Short"],
+        "MM Diff":        old["MM Net"] - other["MM Net"],
+        "Comm Net Old":   old["Comm Net"],   "Comm Net New": other["Comm Net"],
+        "Comm Short Old": old["Producer Short"] if "Producer Short" in old.columns else pd.Series(dtype=float),
+        "Comm Short New": other["Producer Short"] if "Producer Short" in other.columns else pd.Series(dtype=float),
+        "Week": pd.Series(common.isocalendar().week.astype(int).values, index=common),
+        "Year": pd.Series(common.year, index=common),
+    }, index=common)
+    return wide.reset_index()
+
+def _seas_chart(wide, metric, title, accent, ylabel="k lots", by_week=True, sm=CROP_START_MONTH):
+    if wide.empty or metric not in wide.columns:
+        return go.Figure().update_layout(**_BASE, height=340)
+    grp = "Week" if by_week else "CropWeek"
+    yr_col = "Year" if by_week else "CropYear"
+    pivot = wide.pivot_table(index=grp, columns=yr_col, values=metric, aggfunc="mean")
+    pivot = pivot[pivot.index <= 52]
+    if by_week:
+        cur = int(wide["Year"].max())
+        hist_cols = [c for c in pivot.columns if c < cur]
+    else:
+        cur = _current_crop_year_label(sm)
+        hist_cols = [c for c in pivot.columns if c != cur]
+    hist = pivot[hist_cols] if hist_cols else pivot
+    p25, p75, med = hist.quantile(0.25, axis=1), hist.quantile(0.75, axis=1), hist.median(axis=1)
+    r, g, b = int(accent[1:3], 16), int(accent[3:5], 16), int(accent[5:7], 16)
+    fig = go.Figure()
+    for yr in hist_cols:
+        fig.add_trace(go.Scatter(x=pivot.index, y=hist[yr], mode="lines",
+            line=dict(color="rgba(150,150,150,0.18)", width=1), showlegend=False, hoverinfo="skip"))
+    xs = list(p75.index) + list(p75.index[::-1])
+    fig.add_trace(go.Scatter(x=xs, y=list(p75.values)+list(p25.values[::-1]),
+        fill="toself", fillcolor=f"rgba({r},{g},{b},0.10)",
+        line=dict(width=0), name="25–75th pct", hoverinfo="skip"))
+    fig.add_trace(go.Scatter(x=med.index, y=med.values, mode="lines", name="Median",
+        line=dict(color=f"rgba({r},{g},{b},0.55)", width=1.6, dash="dash")))
+    if cur in pivot.columns:
+        cy = pivot[cur].dropna()
+        fig.add_trace(go.Scatter(x=cy.index, y=cy.values, mode="lines+markers",
+            name=str(cur), line=dict(color=C_OLD, width=2.6), marker=dict(size=5, color=C_OLD)))
+    fig.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.12)")
+    if by_week:
+        xticks = dict(tickvals=list(MONTH_TICKS.keys()), ticktext=list(MONTH_TICKS.values()))
+    else:
+        xticks = dict(tickvals=list(CROP_WEEK_TICKS.keys()),
+                      ticktext=[_MONTHS[(sm - 1 + i) % 12] for i in range(12)])
+    fig.update_layout(**_BASE, height=340,
+        title=dict(text=title, font=dict(size=12, color="#444"), x=0),
+        margin=dict(l=50, r=20, t=40, b=60),
+        legend=dict(orientation="h", y=-0.18, x=0.5, xanchor="center", font_size=10, bgcolor="rgba(0,0,0,0)"),
+        xaxis=dict(**_ax(x=True), title_text="", **xticks),
+        yaxis=dict(**_ax(), title_text=ylabel, title_font_size=10))
+    return fig
+
+
 def render_old_new(d_crops, color):
-    old   = d_crops[d_crops["Crop"]=="Old"].sort_values("Date").reset_index(drop=True)
-    other = d_crops[d_crops["Crop"]=="Other"].sort_values("Date").reset_index(drop=True)
+    old   = d_crops[d_crops["Crop"]=="Old"].set_index("Date").sort_index()
+    other = d_crops[d_crops["Crop"]=="Other"].set_index("Date").sort_index()
+    alla  = d_crops[d_crops["Crop"]=="All"].set_index("Date").sort_index()
 
     if old.empty and other.empty:
         st.info("No Old/Other crop data in selected range."); return
 
-    # OI stacked bar
-    dates    = old["Date"].combine_first(other["Date"]).sort_values().drop_duplicates()
-    old_i    = old.set_index("Date");  other_i = other.set_index("Date")
-    fig_oi = go.Figure([
-        go.Bar(x=dates, y=old_i.reindex(dates)["Total OI"]/1000,
-               name="Old Crop", marker=dict(color=C_OLD,opacity=0.85,line=dict(width=0)),
-               hovertemplate="<b>%{x|%d %b %y}</b><br>Old OI: %{y:.1f}k<extra></extra>"),
-        go.Bar(x=dates, y=other_i.reindex(dates)["Total OI"]/1000,
-               name="New Crop", marker=dict(color=C_NEW,opacity=0.85,line=dict(width=0)),
-               hovertemplate="<b>%{x|%d %b %y}</b><br>New OI: %{y:.1f}k<extra></extra>"),
-    ])
-    fig_oi.update_layout(**_BASE, barmode="stack", height=290,
-        title=dict(text="Open Interest — Old vs New Crop  ·  k lots",font=dict(size=12,color="#333"),x=0),
-        margin=dict(l=50,r=12,t=38,b=68),
-        legend=dict(orientation="h",y=-0.24,x=0.5,xanchor="center",font_size=10),
-        xaxis=dict(**_ax(x=True),tickformat="%d %b '%y"),
-        yaxis=dict(**_ax(),title_text="k lots",title_font_size=10), bargap=0.18)
-    st.plotly_chart(fig_oi, use_container_width=True)
+    other_check = d_crops[d_crops["Crop"]=="Other"]["Total OI"].dropna()
+    if other_check.empty:
+        st.info("Old/New crop split not available for this commodity."); return
 
-    # Metric selector
-    avail_metrics = [c for c in ["MM Net","Comm Net","MM Long","MM Short",
-                                  "Producer Long","Producer Short",
-                                  "Swap Net","Other Net","Non Rep Net"]
-                     if c in old.columns or c in other.columns]
-    ch1,ch2 = st.columns([2,5])
-    with ch1: sel = st.selectbox("Metric", avail_metrics, key="on_metric")
+    def _v(df, col):
+        try: return float(df[col].iloc[-1]) if not df.empty and col in df.columns else np.nan
+        except: return np.nan
+    def _fmt(v): return "—" if np.isnan(v) else f"{v/1000:.1f}k"
+    def _pct(a, b):
+        t = a + b; return f"{a/t*100:.0f}% / {b/t*100:.0f}%" if t else "—"
 
-    ch1,ch2 = st.columns(2)
-    for widget, (crop_df, lbl, clr) in zip([ch1,ch2],[
-        (old,   "Old Crop", C_OLD),
-        (other, "New Crop", C_NEW),
-    ]):
-        with widget:
-            if sel not in crop_df.columns: continue
-            r,g,b = int(clr[1:3],16), int(clr[3:5],16), int(clr[5:7],16)
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=crop_df["Date"], y=crop_df[sel]/1000, name=lbl,
-                fill="tozeroy", fillcolor=f"rgba({r},{g},{b},0.09)",
-                line=dict(color=clr,width=2.2),
-                hovertemplate=f"<b>%{{x|%d %b %y}}</b><br>{lbl}: %{{y:.1f}}k<extra></extra>"))
-            fig.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.12)")
-            fig.update_layout(**_BASE, height=310,
-                title=dict(text=f"{sel} — {lbl}  ·  k lots",font=dict(size=12,color="#333"),x=0),
-                margin=dict(l=50,r=12,t=38,b=50), showlegend=False,
-                xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
-                yaxis=dict(**_ax(),title_text="k lots",title_font_size=10))
-            st.plotly_chart(fig, use_container_width=True)
+    oi_old = _v(old,"Total OI"); oi_oth = _v(other,"Total OI")
+    r,g,b  = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
+    html = "<div style='display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px'>"
+    for lbl, val in [
+        ("OI Old / New", _pct(oi_old, oi_oth)),
+        ("OI Old",       _fmt(oi_old)),
+        ("OI New",       _fmt(oi_oth)),
+        ("MM Net Old",   _fmt(_v(old,"MM Net"))),
+        ("MM Net New",   _fmt(_v(other,"MM Net"))),
+        ("Comm Net Old", _fmt(_v(old,"Comm Net"))),
+        ("Comm Net New", _fmt(_v(other,"Comm Net"))),
+        ("Rollex Px",    f"{_v(alla,'Px'):.2f}" if not np.isnan(_v(alla,"Px")) else "—"),
+    ]:
+        html += (f"<div style='background:rgba({r},{g},{b},0.06);border:1px solid rgba({r},{g},{b},0.15);"
+                 f"border-radius:10px;padding:7px 15px;min-width:105px;display:flex;flex-direction:column'>"
+                 f"<span style='font-size:.56rem;color:#999;text-transform:uppercase;"
+                 f"letter-spacing:.1em;margin-bottom:2px'>{lbl}</span>"
+                 f"<span style='font-size:.92rem;font-weight:700;color:{color}'>{val}</span></div>")
+    st.markdown(html + "</div>", unsafe_allow_html=True)
 
-    with st.expander("Weekly Changes — Old vs New", expanded=False):
-        ch1,ch2 = st.columns(2)
-        with ch1:
-            if sel in old.columns: st.plotly_chart(bars_weekly(old,sel,f"Old Crop {sel} — Δ"), use_container_width=True)
-        with ch2:
-            if sel in other.columns: st.plotly_chart(bars_weekly(other,sel,f"New Crop {sel} — Δ"), use_container_width=True)
+    # ── Crop year seasonality ─────────────────────────────────────────────────
+    with st.expander("Seasonality — Crop Year  (adjustable start)", expanded=False):
+        wide_full = _on_seasonal_wide(d_crops)
+        if not wide_full.empty:
+            sm = st.selectbox("Crop year starts in", list(range(1,13)),
+                              index=CROP_START_MONTH-1, format_func=lambda m: _MONTHS[m-1],
+                              key="cy_start_on")
+            wide_cy = wide_full.copy()
+            wide_cy["CropYear"] = pd.to_datetime(wide_cy["Date"]).apply(lambda d: _crop_year_label(d, sm))
+            wide_cy["CropWeek"] = pd.to_datetime(wide_cy["Date"]).apply(lambda d: _crop_week_num(d, sm))
+            cur_cy = _current_crop_year_label(sm)
+            st.markdown(f"<p style='font-size:.75rem;color:{GRAY};margin-bottom:10px'>"
+                        f"Each line = one crop year · Bold <span style='color:{C_OLD}'>{cur_cy}</span> = current</p>",
+                        unsafe_allow_html=True)
+            pairs = [
+                ("OI Old %","OI Old Crop % of Total","%"),
+                ("MM Diff","MM Net Old minus New · k lots","k lots"),
+                ("MM Net Old","MM Net — Old Crop","k lots"),
+                ("MM Net New","MM Net — New Crop","k lots"),
+                ("MM Long Old","MM Long — Old Crop","k lots"),
+                ("MM Long New","MM Long — New Crop","k lots"),
+                ("MM Short Old","MM Short — Old Crop","k lots"),
+                ("MM Short New","MM Short — New Crop","k lots"),
+                ("Comm Net Old","Comm Net — Old Crop","k lots"),
+                ("Comm Net New","Comm Net — New Crop","k lots"),
+            ]
+            for i in range(0, len(pairs), 2):
+                c1, c2 = st.columns(2)
+                with c1: st.plotly_chart(_seas_chart(wide_cy, pairs[i][0], pairs[i][1], color, pairs[i][2], by_week=False, sm=sm), use_container_width=True)
+                if i+1 < len(pairs):
+                    with c2: st.plotly_chart(_seas_chart(wide_cy, pairs[i+1][0], pairs[i+1][1], color, pairs[i+1][2], by_week=False, sm=sm), use_container_width=True)
 
-    with st.expander("Seasonality — Old vs New", expanded=False):
-        ch1,ch2 = st.columns(2)
-        with ch1:
-            if sel in old.columns: st.plotly_chart(seasonal(old,sel,C_OLD,f"Old · {sel}"), use_container_width=True)
-        with ch2:
-            if sel in other.columns: st.plotly_chart(seasonal(other,sel,C_NEW,f"New · {sel}"), use_container_width=True)
+    # ── OI split ──────────────────────────────────────────────────────────────
+    with st.expander("Open Interest — Old vs New Crop", expanded=False):
+        dates = old.index.union(other.index).sort_values()
+        fig_oi = go.Figure([
+            go.Bar(x=dates, y=old.reindex(dates)["Total OI"]/1000, name="Old Crop",
+                   marker=dict(color=C_OLD,opacity=0.85,line=dict(width=0)),
+                   hovertemplate="<b>%{x|%d %b %y}</b><br>Old OI: %{y:.1f}k<extra></extra>"),
+            go.Bar(x=dates, y=other.reindex(dates)["Total OI"]/1000, name="New Crop",
+                   marker=dict(color=C_NEW,opacity=0.85,line=dict(width=0)),
+                   hovertemplate="<b>%{x|%d %b %y}</b><br>New OI: %{y:.1f}k<extra></extra>"),
+        ])
+        fig_oi.update_layout(**_BASE, barmode="stack", height=300,
+            title=dict(text="Open Interest — Old vs New Crop  ·  k lots",font=dict(size=12,color="#444"),x=0),
+            margin=dict(l=50,r=12,t=38,b=68), bargap=0.18,
+            legend=dict(orientation="h",y=-0.24,x=0.5,xanchor="center",font_size=10),
+            xaxis=dict(**_ax(x=True),tickformat="%d %b '%y"),
+            yaxis=dict(**_ax(),title_text="k lots",title_font_size=10))
+        st.plotly_chart(fig_oi, use_container_width=True)
 
-    tbl_cols = [c for c in ["MM Net","Comm Net","MM Long","MM Short",
-                             "Producer Long","Producer Short","Total OI"] if c in old.columns]
-    with st.expander("Data table — Old Crop", expanded=False):
-        tbl = old[["Date"]+tbl_cols].copy()
-        tbl["Date"] = pd.to_datetime(tbl["Date"]).dt.strftime("%d %b '%y")
-        st.dataframe(tbl.sort_values("Date",ascending=False).reset_index(drop=True),
-                     use_container_width=True, height=340)
-    with st.expander("Data table — New Crop", expanded=False):
-        tbl = other[["Date"]+tbl_cols].copy()
-        tbl["Date"] = pd.to_datetime(tbl["Date"]).dt.strftime("%d %b '%y")
-        st.dataframe(tbl.sort_values("Date",ascending=False).reset_index(drop=True),
-                     use_container_width=True, height=340)
+    # ── Net positions ─────────────────────────────────────────────────────────
+    with st.expander("Net Positions — MM & Commercial", expanded=False):
+        c1, c2 = st.columns(2)
+        for col_c, (col, title) in zip([c1,c2],[("MM Net","Managed Money Net"),("Comm Net","Commercial (Prod) Net")]):
+            with col_c:
+                fig = go.Figure()
+                for crop_df, lbl, clr in [(old,"Old Crop",C_OLD),(other,"New Crop",C_NEW)]:
+                    if col in crop_df.columns:
+                        fig.add_trace(go.Scatter(x=crop_df.index, y=crop_df[col]/1000, name=lbl,
+                            line=dict(color=clr, width=2.2, shape="spline", smoothing=0.6),
+                            hovertemplate=f"<b>%{{x|%d %b %y}}</b><br>{lbl}: %{{y:.1f}}k<extra></extra>"))
+                fig.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.15)")
+                fig.update_layout(**_BASE, height=340,
+                    title=dict(text=f"{title}  ·  k lots",font=dict(size=12,color="#444"),x=0),
+                    margin=dict(l=50,r=20,t=40,b=70),
+                    legend=dict(orientation="h",y=-0.22,x=0.5,xanchor="center",font_size=10,bgcolor="rgba(0,0,0,0)"),
+                    xaxis=dict(**_ax(x=True),tickformat="%d %b '%y"),
+                    yaxis=dict(**_ax(),title_text="k lots",title_font_size=10))
+                st.plotly_chart(fig, use_container_width=True)
+
+    # ── Gross legs ────────────────────────────────────────────────────────────
+    with st.expander("Gross Legs — Old vs New Crop", expanded=False):
+        gross_legs = [(c,t) for c,t in [
+            ("MM Long","MM Long"),("MM Short","MM Short"),
+            ("Producer Long","Comm Long"),("Producer Short","Comm Short"),
+        ] if c in old.columns or c in other.columns]
+        for col, title in gross_legs:
+            c1, c2 = st.columns(2)
+            with c1:
+                fig = go.Figure()
+                for crop_df, lbl, clr in [(old,"Old",C_OLD),(other,"New",C_NEW)]:
+                    if col in crop_df.columns:
+                        fig.add_trace(go.Scatter(x=crop_df.index, y=crop_df[col]/1000, name=lbl,
+                            line=dict(color=clr,width=2.2,shape="spline",smoothing=0.6),
+                            hovertemplate=f"<b>%{{x|%d %b %y}}</b><br>{lbl}: %{{y:.1f}}k<extra></extra>"))
+                fig.update_layout(**_BASE, height=300,
+                    title=dict(text=f"{title}  ·  k lots",font=dict(size=12,color="#444"),x=0),
+                    margin=dict(l=50,r=20,t=40,b=70),
+                    legend=dict(orientation="h",y=-0.24,x=0.5,xanchor="center",font_size=10,bgcolor="rgba(0,0,0,0)"),
+                    xaxis=dict(**_ax(x=True),tickformat="%d %b '%y"),
+                    yaxis=dict(**_ax(),title_text="k lots",title_font_size=10))
+                st.plotly_chart(fig, use_container_width=True)
+            with c2:
+                dates2 = old.index.union(other.index).sort_values()
+                fig2 = go.Figure([
+                    go.Bar(x=dates2, y=old.reindex(dates2)[col]/1000 if col in old.columns else None,
+                           name="Old", marker=dict(color=C_OLD,opacity=0.85,line=dict(width=0)),
+                           hovertemplate=f"<b>%{{x|%d %b %y}}</b><br>Old: %{{y:.1f}}k<extra></extra>"),
+                    go.Bar(x=dates2, y=other.reindex(dates2)[col]/1000 if col in other.columns else None,
+                           name="New", marker=dict(color=C_NEW,opacity=0.85,line=dict(width=0)),
+                           hovertemplate=f"<b>%{{x|%d %b %y}}</b><br>New: %{{y:.1f}}k<extra></extra>"),
+                ])
+                fig2.update_layout(**_BASE, barmode="stack", height=280,
+                    title=dict(text=f"{title} — Stacked  ·  k lots",font=dict(size=12,color="#444"),x=0),
+                    margin=dict(l=50,r=20,t=40,b=70), bargap=0.12,
+                    legend=dict(orientation="h",y=-0.26,x=0.5,xanchor="center",font_size=10,bgcolor="rgba(0,0,0,0)"),
+                    xaxis=dict(**_ax(x=True),tickformat="%d %b '%y"),
+                    yaxis=dict(**_ax(),title_text="k lots",title_font_size=10))
+                st.plotly_chart(fig2, use_container_width=True)
+
+    # ── Data table ────────────────────────────────────────────────────────────
+    with st.expander("Data table — Old Crop / New Crop", expanded=False):
+        common_dates = old.index.union(other.index).sort_values()[::-1][:30]
+        # need one extra row older than window to compute weekly change for the oldest visible row
+        common_dates_ext = old.index.union(other.index).sort_values()[::-1][:31]
+
+        def _get_s(df, col, dates):
+            return (df.reindex(dates)[col] / 1000) if col in df.columns else pd.Series(np.nan, index=dates)
+
+        def _build_tbl(dates):
+            data = {}
+            for src, lbl in [("MM Net","MM Net Old"),("Comm Net","Comm Net Old")]:
+                data[("Net · k lots", lbl)] = _get_s(old, src, dates).values
+            for src, lbl in [("MM Net","MM Net New"),("Comm Net","Comm Net New")]:
+                data[("Net · k lots", lbl)] = _get_s(other, src, dates).values
+            for src, lbl in [("MM Long","Old"),("MM Short","Old"),("Producer Long","Old"),("Producer Short","Old")]:
+                data[(src.replace("Producer","Prod"), lbl)] = _get_s(old, src, dates).values
+            for src, lbl in [("MM Long","New"),("MM Short","New"),("Producer Long","New"),("Producer Short","New")]:
+                data[(src.replace("Producer","Prod"), lbl)] = _get_s(other, src, dates).values
+            data[("OI · k lots", "Old")] = _get_s(old, "Total OI", dates).values
+            data[("OI · k lots", "New")] = _get_s(other, "Total OI", dates).values
+            return pd.DataFrame(data, index=dates)
+
+        # Levels table — no sign colouring
+        tbl_df = _build_tbl(common_dates)
+        tbl_df.index = pd.to_datetime(tbl_df.index).strftime("%d %b '%y")
+        tbl_df.index.name = None
+        st.markdown(_recap_html(tbl_df, scroll=True), unsafe_allow_html=True)
+
+        # Weekly change table — diff against the row one week earlier
+        tbl_ext = _build_tbl(common_dates_ext)
+        chg_df = tbl_ext.diff(-1).iloc[:len(common_dates)]   # row[i] - row[i+1] (newer minus older)
+        chg_df.index = pd.to_datetime(common_dates).strftime("%d %b '%y")
+        chg_df.index.name = None
+        st.markdown(
+            f"<p style='font-size:.72rem;color:{GRAY};margin:8px 0 2px'>Weekly change  ·  k lots</p>",
+            unsafe_allow_html=True)
+        all_groups = {g for g, _ in chg_df.columns}
+        st.markdown(_recap_html(chg_df, signed_groups=all_groups, scroll=True), unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -831,6 +1147,18 @@ _RECAP_GROUP_BG = {
     "OI · k lots":     "#e5e7eb",
     "Δ 1w":            "#f9a8d4",
     "OI %":            "#1e3a8a",
+    "Nominal (M USD)": "#d1fae5",
+    "Nominal (M GBP)": "#fef9c3",
+    "# Traders":       "#ede9fe",
+    "k lots / Trader": "#fef08a",
+    "Old Crop":        "#fde68a",
+    "New Crop":        "#bbf7d0",
+    "Net · k lots":    "#bae6fd",
+    "MM Long":         "#d1fae5",
+    "MM Short":        "#fee2e2",
+    "Prod Long":       "#e0e7ff",
+    "Prod Short":      "#fce7f3",
+    "Rollex Px":       "#fef3c7",
 }
 _RECAP_GROUP_TEXT = {
     "OI %": "#ffffff",
@@ -849,7 +1177,7 @@ _RECAP_CSS = """
 </style>
 """
 
-def _recap_html(df, signed=False, change_table=False, scroll=False, signed_groups=None, pct_groups=None):
+def _recap_html(df, signed=False, change_table=False, scroll=False, signed_groups=None, pct_groups=None, pct_subcols=None):
     if df.empty: return ""
     cols = list(df.columns)
     # Build group spans
@@ -888,7 +1216,8 @@ def _recap_html(df, signed=False, change_table=False, scroll=False, signed_group
             if pd.isna(v): body += '<td>—</td>'; continue
             use_signed = signed or change_table or (
                 signed_groups and isinstance(c, tuple) and c[0] in signed_groups)
-            use_pct = pct_groups and isinstance(c, tuple) and c[0] in pct_groups
+            use_pct = ((pct_groups and isinstance(c, tuple) and c[0] in pct_groups) or
+                       (pct_subcols and isinstance(c, tuple) and c in pct_subcols))
             if use_signed:
                 txt = f"{v:+.1f}"
                 cls = "rpos" if v > 0 else ("rneg" if v < 0 else "")
@@ -965,6 +1294,9 @@ def _build_recap_df(d, report):
 
         cols[("OI", "Total OI")] = gc("Total OI") / 1000
 
+    # Add Rollex Px level — diff in summary gives absolute price change
+    cols[("Rollex Px", "Level")] = gc("Px")
+
     body = pd.DataFrame(cols)
     body.index = pd.to_datetime(d["Date"])
     body = body.iloc[::-1]  # newest first
@@ -979,6 +1311,18 @@ def _build_recap_df(d, report):
     summary = pd.DataFrame([row_1w, row_4w],
                            index=["+/-1w", "+/-4w"],
                            columns=body.columns)
+
+    # Rollex Px Δ% 1w — body (newest first): pct_change(-1) = row vs the one after (older)
+    px_lvl = body[("Rollex Px", "Level")]
+    body[("Rollex Px", "Δ% 1w")] = px_lvl.pct_change(-1) * 100
+
+    # Override summary Δ% 1w with proper cumulative % change (not diff of pct)
+    summary[("Rollex Px", "Δ% 1w")] = np.nan
+    if len(px_lvl) >= 2 and px_lvl.iloc[1] != 0:
+        summary.loc["+/-1w", ("Rollex Px", "Δ% 1w")] = (px_lvl.iloc[0] / px_lvl.iloc[1] - 1) * 100
+    if len(px_lvl) >= 5 and px_lvl.iloc[4] != 0:
+        summary.loc["+/-4w", ("Rollex Px", "Δ% 1w")] = (px_lvl.iloc[0] / px_lvl.iloc[4] - 1) * 100
+
     body.index = [f"{dt.day}-{dt.strftime('%b-%y')}" for dt in body.index]
     return summary, body
 
@@ -1014,21 +1358,152 @@ def _build_oi_df(d, report):
     oi_df = oi_df.iloc[::-1].iloc[:20]  # newest first, last 20
 
     total_s = pd.Series(total_oi.values, index=pd.to_datetime(d["Date"])).iloc[::-1].iloc[:20]
-    pct_df  = oi_df.div(total_s.values, axis=0) * 100
-    chg_df  = oi_df.diff(-1)
+    pct_df  = oi_df.div(total_s.values, axis=0) * 100   # % before adding Total OI col
 
-    cats = list(oi_cols.keys())
-    combined = pd.concat([oi_df, pct_df, chg_df], axis=1)
+    oi_df["Total OI"] = total_s.values                  # add Total OI after pct calc
+    chg_df = oi_df.diff(-1)
+
+    cats     = list(oi_cols.keys())
+    all_cats = cats + ["Total OI"]
+    combined = pd.concat([oi_df[all_cats], pct_df[cats], chg_df[all_cats]], axis=1)
     combined.columns = pd.MultiIndex.from_tuples(
-        [("OI · k lots", c) for c in cats] +
+        [("OI · k lots", c) for c in all_cats] +
         [("OI %",        c) for c in cats] +
-        [("Δ 1w",        c) for c in cats]
+        [("Δ 1w",        c) for c in all_cats]
     )
     combined.index = [f"{dt.day}-{dt.strftime('%b-%y')}" for dt in combined.index]
     return combined
 
 
-def render_recap(d, report, color):
+def _build_nominal_df(d, commodity, report):
+    d = d.sort_values("Date", ascending=True).reset_index(drop=True)
+    if d.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    def gc(name):
+        return d[name].astype(float) if name in d.columns else pd.Series(0.0, index=d.index)
+
+    size = CONTRACT_SIZE.get(commodity, 1)
+    unit = CONTRACT_UNIT.get(commodity, "MT")
+    ccy  = "GBP" if commodity == "LCC" else "USD"
+    px   = gc("Px")
+
+    # mult: M currency per 1 contract
+    if unit == "lbs":
+        mult = px * size / 100 / 1_000_000   # cents/lb → USD
+    else:
+        mult = px * size / 1_000_000          # USD or GBP per MT
+
+    grp = f"Nominal (M {ccy})"
+
+    if report == "CIT":
+        cols = {
+            (grp, "Net Spec"):   gc("Spec Net")  * mult,
+            (grp, "Net Index"):  gc("Index Net") * mult,
+            (grp, "Comm Long"):  gc("Comm Long") * mult,
+            (grp, "Comm Short"): gc("Comm Short") * mult,
+        }
+    else:
+        cols = {
+            (grp, "MM Net"):      gc("MM Net")       * mult,
+            (grp, "Swap Net"):    gc("Swap Net")      * mult,
+            (grp, "Other Net"):   gc("Other Net")     * mult,
+            (grp, "Non-Rep Net"): gc("Non Rep Net")   * mult,
+            (grp, "Comm Long"):   gc("Producer Long") * mult,
+            (grp, "Comm Short"):  gc("Producer Short") * mult,
+        }
+
+    body = pd.DataFrame(cols)
+    body.index = pd.to_datetime(d["Date"])
+    body = body.iloc[::-1].iloc[:20]
+
+    row_1w, row_4w = {}, {}
+    for c in body.columns:
+        if len(body) >= 2: row_1w[c] = body.iloc[0][c] - body.iloc[1][c]
+        if len(body) >= 5: row_4w[c] = body.iloc[0][c] - body.iloc[4][c]
+
+    summary = pd.DataFrame([row_1w, row_4w], index=["+/-1w", "+/-4w"], columns=body.columns)
+    body.index = [f"{dt.day}-{dt.strftime('%b-%y')}" for dt in body.index]
+    return summary, body
+
+
+def _summary_and_body(cols_dict, d_index, n=20):
+    body = pd.DataFrame(cols_dict)
+    body.index = pd.to_datetime(d_index)
+    body = body.iloc[::-1].iloc[:n]
+    row_1w, row_4w = {}, {}
+    for c in body.columns:
+        if len(body) >= 2: row_1w[c] = body.iloc[0][c] - body.iloc[1][c]
+        if len(body) >= 5: row_4w[c] = body.iloc[0][c] - body.iloc[4][c]
+    summary = pd.DataFrame([row_1w, row_4w], index=["+/-1w", "+/-4w"], columns=body.columns)
+    body.index = [f"{dt.day}-{dt.strftime('%b-%y')}" for dt in body.index]
+    return summary, body
+
+
+def _build_traders_df(d, report):
+    d = d.sort_values("Date", ascending=True).reset_index(drop=True)
+    if d.empty: return pd.DataFrame(), pd.DataFrame()
+    def gc(name): return d[name].astype(float) if name in d.columns else pd.Series(0.0, index=d.index)
+
+    if report == "CIT":
+        cols = {
+            ("# Traders", "Lrg Long"):  gc("Traders Spec Long"),
+            ("# Traders", "Lrg Short"): gc("Traders Spec Short"),
+            ("# Traders", "Idx Long"):  gc("Traders Index Long"),
+            ("# Traders", "Idx Short"): gc("Traders Index Short"),
+            ("# Traders", "Lrg Spread"):gc("Traders Spec Spread"),
+            ("# Traders", "Comm Long"): gc("Traders Comm Long"),
+            ("# Traders", "Comm Short"):gc("Traders Comm Short"),
+        }
+    else:
+        cols = {
+            ("# Traders", "MM Long"):    gc("Traders MM Long"),
+            ("# Traders", "MM Short"):   gc("Traders MM Short"),
+            ("# Traders", "MM Spread"):  gc("Traders MM Spread"),
+            ("# Traders", "Swap Long"):  gc("Traders Swap Long"),
+            ("# Traders", "Swap Short"): gc("Traders Swap Short"),
+            ("# Traders", "Swap Spread"):gc("Traders Swap Spread"),
+            ("# Traders", "Other Long"): gc("Traders Other Long"),
+            ("# Traders", "Other Short"):gc("Traders Other Short"),
+            ("# Traders", "Prod Long"):  gc("Traders Producer Long"),
+            ("# Traders", "Prod Short"): gc("Traders Producer Short"),
+        }
+    return _summary_and_body(cols, d["Date"])
+
+
+def _build_lots_per_trader_df(d, report):
+    d = d.sort_values("Date", ascending=True).reset_index(drop=True)
+    if d.empty: return pd.DataFrame(), pd.DataFrame()
+    def gc(name): return d[name].astype(float) if name in d.columns else pd.Series(0.0, index=d.index)
+    def safe_div(num, den): return num.where(den == 0, num / den.replace(0, np.nan))
+
+    if report == "CIT":
+        cols = {
+            ("k lots / Trader", "Lrg Long"):  safe_div(gc("Spec Long")  / 1000, gc("Traders Spec Long")),
+            ("k lots / Trader", "Lrg Short"): safe_div(gc("Spec Short") / 1000, gc("Traders Spec Short")),
+            ("k lots / Trader", "Idx Long"):  safe_div(gc("Index Long") / 1000, gc("Traders Index Long")),
+            ("k lots / Trader", "Idx Short"): safe_div(gc("Index Short")/ 1000, gc("Traders Index Short")),
+            ("k lots / Trader", "Lrg Spread"):safe_div(gc("Spec Spread")/ 1000, gc("Traders Spec Spread")),
+            ("k lots / Trader", "Comm Long"): safe_div(gc("Comm Long")  / 1000, gc("Traders Comm Long")),
+            ("k lots / Trader", "Comm Short"):safe_div(gc("Comm Short") / 1000, gc("Traders Comm Short")),
+        }
+    else:
+        cols = {
+            ("k lots / Trader", "MM Long"):    safe_div(gc("MM Long")       / 1000, gc("Traders MM Long")),
+            ("k lots / Trader", "MM Short"):   safe_div(gc("MM Short")      / 1000, gc("Traders MM Short")),
+            ("k lots / Trader", "MM Spread"):  safe_div(gc("MM Spread")     / 1000, gc("Traders MM Spread")),
+            ("k lots / Trader", "Swap Long"):  safe_div(gc("Swap Long")     / 1000, gc("Traders Swap Long")),
+            ("k lots / Trader", "Swap Short"): safe_div(gc("Swap Short")    / 1000, gc("Traders Swap Short")),
+            ("k lots / Trader", "Swap Spread"):safe_div(gc("Swap Spread")   / 1000, gc("Traders Swap Spread")),
+            ("k lots / Trader", "Other Long"): safe_div(gc("Other Long")    / 1000, gc("Traders Other Long")),
+            ("k lots / Trader", "Other Short"):safe_div(gc("Other Short")   / 1000, gc("Traders Other Short")),
+            ("k lots / Trader", "Prod Long"):  safe_div(gc("Producer Long") / 1000, gc("Traders Producer Long")),
+            ("k lots / Trader", "Prod Short"): safe_div(gc("Producer Short")/ 1000, gc("Traders Producer Short")),
+        }
+    return _summary_and_body(cols, d["Date"])
+
+
+def render_recap(d, report, color, commodity="KC", is_options=False):
     if d.empty:
         st.warning("No data for the selected filters."); return
 
@@ -1038,19 +1513,44 @@ def render_recap(d, report, color):
 
     view = body.iloc[:20]
 
+    _PX_PCT = {("Rollex Px", "Δ% 1w")}
+
     with st.expander("Change summary  ·  k lots", expanded=True):
-        st.markdown(_recap_html(summary, signed=True), unsafe_allow_html=True)
+        st.markdown(_recap_html(summary, signed=True, pct_subcols=_PX_PCT), unsafe_allow_html=True)
 
     with st.expander("Historical positions  ·  k lots", expanded=True):
-        st.markdown(_recap_html(view, scroll=True), unsafe_allow_html=True)
+        st.markdown(_recap_html(view, scroll=True, pct_subcols=_PX_PCT), unsafe_allow_html=True)
 
     with st.expander("Weekly change  ·  k lots", expanded=True):
         chg = view.diff(-1)
-        st.markdown(_recap_html(chg, signed=True, change_table=True, scroll=True), unsafe_allow_html=True)
+        st.markdown(_recap_html(chg, signed=True, change_table=True, scroll=True, pct_subcols=_PX_PCT), unsafe_allow_html=True)
 
     oi_tbl = _build_oi_df(d, report)
     with st.expander("OI by category  ·  k lots  &  %", expanded=False):
         st.markdown(_recap_html(oi_tbl, signed_groups={"Δ 1w"}, pct_groups={"OI %"}, scroll=True), unsafe_allow_html=True)
+
+    nom_summary, nom_body = _build_nominal_df(d, commodity, report)
+    if not nom_body.empty:
+        ccy = "GBP" if commodity == "LCC" else "USD"
+        with st.expander(f"Nominal Exposure  ·  M {ccy}", expanded=False):
+            if is_options:
+                st.warning("Options Only — nominal shown as contracts × Rollex Px × contract size. "
+                           "This is **not** delta-adjusted exposure. True options exposure requires "
+                           "delta weighting per strike/expiry and will overstate notional risk.")
+            st.markdown(_recap_html(nom_summary, signed=True), unsafe_allow_html=True)
+            st.markdown(_recap_html(nom_body, scroll=True), unsafe_allow_html=True)
+
+    tr_summary, tr_body = _build_traders_df(d, report)
+    if not tr_body.empty:
+        with st.expander("# of Traders", expanded=False):
+            st.markdown(_recap_html(tr_summary, signed=True), unsafe_allow_html=True)
+            st.markdown(_recap_html(tr_body, scroll=True), unsafe_allow_html=True)
+
+    lpt_summary, lpt_body = _build_lots_per_trader_df(d, report)
+    if not lpt_body.empty:
+        with st.expander("k lots / Trader  (avg position size per trader)", expanded=False):
+            st.markdown(_recap_html(lpt_summary, signed=True), unsafe_allow_html=True)
+            st.markdown(_recap_html(lpt_body, scroll=True), unsafe_allow_html=True)
 
     if report == "CIT":
         guide = """
@@ -1219,15 +1719,20 @@ def render_exposure(d, commodity, color):
 # TAB 8 — ANALYSIS
 # ══════════════════════════════════════════════════════════════════════════════
 def render_analysis(d, report, color):
-    net_opts = [c for c in
-                (["Spec Net","Comm Net","Index Net","Non Rep Net","Combined Spec Net"]
-                 if report=="CIT" else
-                 ["MM Net","Comm Net","Swap Net","Other Net","Non Rep Net","Combined Spec Net"])
-                if c in d.columns]
+    if report == "CIT":
+        _net  = ["Spec Net","Comm Net","Index Net","Non Rep Net","Combined Spec Net"]
+        _gross = ["Spec Long","Spec Short","Non Rep Long","Non Rep Short",
+                  "Index Long","Index Short","Comm Long","Comm Short"]
+    else:
+        _net  = ["MM Net","Comm Net","Swap Net","Other Net","Non Rep Net","Combined Spec Net"]
+        _gross = ["MM Long","MM Short","Producer Long","Producer Short",
+                  "Swap Long","Swap Short","Other Long","Other Short",
+                  "Non Rep Long","Non Rep Short"]
+    all_opts = [c for c in _net + _gross if c in d.columns]
 
     st.markdown("#### Price vs Positioning")
     c1,_ = st.columns([2,5])
-    with c1: sel = st.selectbox("COT element", net_opts, key="anal_col")
+    with c1: sel = st.selectbox("COT element", all_opts, key="anal_col")
 
     if sel and "Px" in d.columns:
         ch1,ch2 = st.columns(2)
@@ -1236,7 +1741,6 @@ def render_analysis(d, report, color):
                 f"Price Δ%  vs  {sel} Δ","Price weekly Δ%",f"{sel} Δ (k lots)"),
                 use_container_width=True)
         with ch2:
-            # Level scatter
             x = np.asarray(d["Px"], dtype=float)
             y = np.asarray(d[sel], dtype=float) / 1000
             dates = np.asarray(d["Date"])
@@ -1254,7 +1758,7 @@ def render_analysis(d, report, color):
                         colorscale=[[0,"rgba(200,210,230,0.5)"],[1,f"rgba({rv},{gv},{bv},0.85)"]],
                         size=7,line=dict(width=0.5,color="white")),
                     text=pd.to_datetime(dates[mask]).strftime("%Y-%m-%d"),
-                    hovertemplate="<b>%{text}</b><br>Price: %{x:.2f}<br>Net: %{y:.1f}k<extra></extra>",
+                    hovertemplate=f"<b>%{{text}}</b><br>Rollex Px: %{{x:.2f}}<br>{sel}: %{{y:.1f}}k<extra></extra>",
                     showlegend=False))
                 fig2.add_trace(go.Scatter(x=xl,y=sl*xl+ic,mode="lines",
                     line=dict(color=color,width=1.6,dash="dash"),showlegend=False))
@@ -1268,25 +1772,83 @@ def render_analysis(d, report, color):
                                f"<span style='font-size:10px;color:#888'>R²={r2:.2f}</span>",
                                font=dict(size=12,color="#333"),x=0),
                     margin=dict(l=52,r=20,t=48,b=48),
-                    xaxis=dict(**_ax(x=True),title_text="Price"),
+                    xaxis=dict(**_ax(x=True),title_text="Rollex Px"),
                     yaxis=dict(**_ax(),title_text=f"{sel} (k lots)"))
                 st.plotly_chart(fig2, use_container_width=True)
 
-    with st.expander("Seasonality", expanded=False):
-        c1,_ = st.columns([2,5])
-        with c1: ssel = st.selectbox("Metric", net_opts, key="seas_col")
-        if ssel in d.columns:
-            st.plotly_chart(seasonal(d,ssel,color,ssel), use_container_width=True)
-
     with st.expander("COT vs COT Cross-Scatter", expanded=False):
-        c1,c2 = st.columns(2)
-        with c1: sx = st.selectbox("X axis", net_opts, index=0, key="xs_x")
-        with c2: sy = st.selectbox("Y axis", net_opts,
-                                   index=min(1,len(net_opts)-1), key="xs_y")
-        if sx in d.columns and sy in d.columns:
-            st.plotly_chart(scatter_2d(d,sx,sy,color,
-                f"{sx} Δ  vs  {sy} Δ",f"{sx} Δ (k lots)",f"{sy} Δ (k lots)"),
-                use_container_width=True)
+        c1, c2 = st.columns(2)
+        with c1:
+            xs_sel = st.multiselect("X axis  (summed if multiple)", all_opts,
+                                    default=[all_opts[0]], key="xs_x")
+        with c2:
+            ys_sel = st.multiselect("Y axis  (summed if multiple)", all_opts,
+                                    default=[all_opts[min(1, len(all_opts)-1)]], key="xs_y")
+        if xs_sel and ys_sel:
+            # Build combined series by summing selected columns
+            xs_avail = [c for c in xs_sel if c in d.columns]
+            ys_avail = [c for c in ys_sel if c in d.columns]
+            if xs_avail and ys_avail:
+                d_tmp = d.copy()
+                d_tmp["_X"] = sum(d_tmp[c] for c in xs_avail)
+                d_tmp["_Y"] = sum(d_tmp[c] for c in ys_avail)
+                x_lbl = " + ".join(xs_avail)
+                y_lbl = " + ".join(ys_avail)
+                st.plotly_chart(scatter_2d(d_tmp, "_X", "_Y", color,
+                    f"{x_lbl}  vs  {y_lbl}",
+                    f"{x_lbl} Δ (k lots)", f"{y_lbl} Δ (k lots)"),
+                    use_container_width=True)
+
+    # ── 3D helpers shared by both expanders ──────────────────────────────────
+    px_opt   = ["Rollex Px"]
+    all_3d   = px_opt + all_opts   # Rollex Px always first
+
+    def _build_series(col_list, mode):
+        """mode='chg': weekly diff/pct  |  mode='lvl': level"""
+        avail = [c for c in col_list if c in d.columns or c == "Rollex Px"]
+        if not avail: return pd.Series(dtype=float), ""
+        parts = []
+        for c in avail:
+            s = d["Px"] if c == "Rollex Px" else d[c]
+            if mode == "chg":
+                parts.append(s.pct_change()*100 if c == "Rollex Px" else s.diff()/1000)
+            else:
+                parts.append(s if c == "Rollex Px" else s/1000)
+        combined = sum(parts)
+        lbl = " + ".join(avail)
+        return combined, lbl
+
+    with st.expander("3D Scatter — Weekly Change", expanded=False):
+        c1, c2, c3 = st.columns(3)
+        with c1: x3c = st.multiselect("X", all_3d, default=[all_3d[0]], key="3dc_x")
+        with c2: y3c = st.multiselect("Y", all_3d, default=[all_3d[1]] if len(all_3d)>1 else [all_3d[0]], key="3dc_y")
+        with c3: z3c = st.multiselect("Z", all_3d, default=[all_3d[2]] if len(all_3d)>2 else [all_3d[0]], key="3dc_z")
+        if x3c and y3c and z3c:
+            xs, xl = _build_series(x3c, "chg")
+            ys, yl = _build_series(y3c, "chg")
+            zs, zl = _build_series(z3c, "chg")
+            if not xs.empty:
+                st.plotly_chart(scatter_3d(
+                    xs, ys, zs, d["Date"], color,
+                    f"{xl}  ×  {yl}  ×  {zl}  — Weekly Δ",
+                    f"{xl} Δ", f"{yl} Δ", f"{zl} Δ"),
+                    use_container_width=True)
+
+    with st.expander("3D Scatter — Position Levels", expanded=False):
+        c1, c2, c3 = st.columns(3)
+        with c1: x3l = st.multiselect("X", all_3d, default=[all_3d[0]], key="3dl_x")
+        with c2: y3l = st.multiselect("Y", all_3d, default=[all_3d[1]] if len(all_3d)>1 else [all_3d[0]], key="3dl_y")
+        with c3: z3l = st.multiselect("Z", all_3d, default=[all_3d[2]] if len(all_3d)>2 else [all_3d[0]], key="3dl_z")
+        if x3l and y3l and z3l:
+            xs, xl = _build_series(x3l, "lvl")
+            ys, yl = _build_series(y3l, "lvl")
+            zs, zl = _build_series(z3l, "lvl")
+            if not xs.empty:
+                st.plotly_chart(scatter_3d(
+                    xs, ys, zs, d["Date"], color,
+                    f"{xl}  ×  {yl}  ×  {zl}  — Levels",
+                    xl, yl, zl),
+                    use_container_width=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1509,8 +2071,8 @@ with st.sidebar:
 
     version_key = None
     if report == "Disagg":
-        version = st.radio("Version", ["F&O combined","Fut only"], horizontal=True)
-        version_key = "F&O" if "F&O" in version else "Fut"
+        version = st.radio("Version", ["F&O combined","Fut only","Options only"], horizontal=True)
+        version_key = "F&O" if "F&O" in version else ("Opt" if "Options" in version else "Fut")
 
     st.markdown("---")
     st.markdown("<div style='font-size:.78rem;font-weight:600;color:#444;"
@@ -1539,13 +2101,20 @@ if report == "CIT":
         (raw["Date"]<=pd.Timestamp(end_date))
     ].sort_values("Date").reset_index(drop=True)
 else:
-    raw = load_disagg(version_key)
+    raw = load_options_only() if version_key == "Opt" else load_disagg(version_key)
     df_all_crops = raw[
         (raw["Commodity"]==commodity) &
         (raw["Date"]>=pd.Timestamp(start_date)) &
         (raw["Date"]<=pd.Timestamp(end_date))
     ].sort_values(["Crop","Date"]).reset_index(drop=True)
     df = df_all_crops[df_all_crops["Crop"]=="All"].sort_values("Date").reset_index(drop=True)
+
+is_options = (report == "Disagg" and version_key == "Opt")
+
+# ── Inject Rollex price (replaces static Px with roll-adjusted daily series) ──
+df = _inject_rollex(df, commodity)
+if df_all_crops is not None:
+    df_all_crops = _inject_rollex(df_all_crops, commodity)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1567,24 +2136,197 @@ if df.empty:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# TAB — RECAP (CHARTS)
+# ══════════════════════════════════════════════════════════════════════════════
+def render_recap_charts(d, report, color, commodity):
+    if d.empty:
+        st.warning("No data for the selected filters."); return
+
+    d   = d.sort_values("Date").reset_index(drop=True)
+    dates = pd.to_datetime(d["Date"])
+
+    def gc(name):
+        return d[name].astype(float) if name in d.columns else pd.Series(np.nan, index=d.index)
+
+    # Nominal multiplier
+    size = CONTRACT_SIZE.get(commodity, 1)
+    unit = CONTRACT_UNIT.get(commodity, "MT")
+    ccy  = "GBP" if commodity == "LCC" else "USD"
+    px   = gc("Px")
+    mult = (px * size / 100 / 1_000_000) if unit == "lbs" else (px * size / 1_000_000)
+    oi   = gc("Total OI").replace(0, np.nan)
+
+    def _line(title, series_dict, clrs=None):
+        dflt = [C_LONG, C_SHORT, C_NET, "#f59e0b", "#7c3aed"]
+        if clrs is None: clrs = dflt
+        fig = go.Figure()
+        fig.update_layout(
+            **_BASE,
+            title=dict(text=f"{commodity} — {title}", font=dict(size=10, color="#374151")),
+            height=260,
+            margin=dict(l=40, r=8, t=36, b=48),
+            showlegend=True,
+            legend=dict(orientation="h", y=-0.28, font=dict(size=9)),
+            xaxis=dict(**_ax(x=True)),
+            yaxis=dict(**_ax()),
+        )
+        for i, (name, y) in enumerate(series_dict.items()):
+            fig.add_trace(go.Scatter(
+                x=dates, y=y, name=name,
+                line=dict(color=clrs[i % len(clrs)], width=1.5)
+            ))
+        return fig
+
+    c1, c2, c3, c4 = st.columns(4)
+    c5, c6, c7, c8 = st.columns(4)
+
+    if report == "CIT":
+        spec_net  = gc("Spec Net")
+        idx_net   = gc("Index Net")
+        ls_long   = (gc("Spec Long") + gc("Non Rep Long")) / 1000
+        ls_short  = (gc("Spec Short") + gc("Non Rep Short")) / 1000
+
+        with c1:
+            st.plotly_chart(_line(
+                f"Nominal Exposure M {ccy}",
+                {"Net Spec": spec_net * mult, "Net Index": idx_net * mult},
+                [C_NET, C_LONG]
+            ), use_container_width=True)
+        with c2:
+            st.plotly_chart(_line(
+                f"Commercial Nominal M {ccy}",
+                {"Gross Long": gc("Comm Long") * mult, "Gross Short": gc("Comm Short") * mult},
+                [C_LONG, C_SHORT]
+            ), use_container_width=True)
+        with c3:
+            st.plotly_chart(_line(
+                "Gross % of OI",
+                {"Lrg+Sml Long %":  (gc("Spec Long")  + gc("Non Rep Long"))  / oi * 100,
+                 "Lrg+Sml Short %": (gc("Spec Short") + gc("Non Rep Short")) / oi * 100},
+                [C_LONG, C_SHORT]
+            ), use_container_width=True)
+        with c4:
+            st.plotly_chart(_line(
+                "# of Traders",
+                {"Large Long": gc("Traders Spec Long"), "Large Short": gc("Traders Spec Short")},
+                [C_LONG, C_SHORT]
+            ), use_container_width=True)
+        with c5:
+            st.plotly_chart(_line(
+                "Spec Gross k lots",
+                {"Large Long": gc("Spec Long") / 1000, "Large Short": gc("Spec Short") / 1000},
+                [C_LONG, C_SHORT]
+            ), use_container_width=True)
+        with c6:
+            st.plotly_chart(_line(
+                "Commercial Gross k lots",
+                {"Comm Long": gc("Comm Long") / 1000, "Comm Short": gc("Comm Short") / 1000},
+                [C_LONG, C_SHORT]
+            ), use_container_width=True)
+        with c7:
+            st.plotly_chart(_line(
+                "Net Spec & Net Index k lots",
+                {"Net Spec": spec_net / 1000, "Net Index": idx_net / 1000},
+                [C_NET, C_LONG]
+            ), use_container_width=True)
+        with c8:
+            st.plotly_chart(_line(
+                "Large+Small k lots",
+                {"L+S Long": ls_long, "L+S Short": ls_short},
+                [C_LONG, C_SHORT]
+            ), use_container_width=True)
+
+    else:  # Disagg
+        mm_net   = gc("MM Net")
+        swap_net = gc("Swap Net")
+        mm_all_l = (gc("MM Long") + gc("Other Long")) / 1000
+        mm_all_s = (gc("MM Short") + gc("Other Short")) / 1000
+
+        with c1:
+            st.plotly_chart(_line(
+                f"MM Nominal M {ccy}",
+                {"MM Net": mm_net * mult, "Swap Net": swap_net * mult},
+                [C_NET, C_LONG]
+            ), use_container_width=True)
+        with c2:
+            st.plotly_chart(_line(
+                f"Commercial Nominal M {ccy}",
+                {"Prod Long": gc("Producer Long") * mult, "Prod Short": gc("Producer Short") * mult},
+                [C_LONG, C_SHORT]
+            ), use_container_width=True)
+        with c3:
+            st.plotly_chart(_line(
+                "MM Gross % of OI",
+                {"MM Long %":  gc("MM Long")  / oi * 100,
+                 "MM Short %": gc("MM Short") / oi * 100},
+                [C_LONG, C_SHORT]
+            ), use_container_width=True)
+        with c4:
+            st.plotly_chart(_line(
+                "# of Traders",
+                {"MM Long": gc("Traders MM Long"), "MM Short": gc("Traders MM Short")},
+                [C_LONG, C_SHORT]
+            ), use_container_width=True)
+        with c5:
+            st.plotly_chart(_line(
+                "MM Gross k lots",
+                {"MM Long": gc("MM Long") / 1000, "MM Short": gc("MM Short") / 1000},
+                [C_LONG, C_SHORT]
+            ), use_container_width=True)
+        with c6:
+            st.plotly_chart(_line(
+                "Commercial k lots",
+                {"Prod Long": gc("Producer Long") / 1000, "Prod Short": gc("Producer Short") / 1000},
+                [C_LONG, C_SHORT]
+            ), use_container_width=True)
+        with c7:
+            st.plotly_chart(_line(
+                "MM Net & Swap Net k lots",
+                {"MM Net": mm_net / 1000, "Swap Net": swap_net / 1000},
+                [C_NET, C_LONG]
+            ), use_container_width=True)
+        with c8:
+            st.plotly_chart(_line(
+                "MM+Other k lots",
+                {"MM+Other Long": mm_all_l, "MM+Other Short": mm_all_s},
+                [C_LONG, C_SHORT]
+            ), use_container_width=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # TABS
 # ══════════════════════════════════════════════════════════════════════════════
-TAB_LABELS = ["Recap","Spec","Commercial","Spreading","Old / New",
-              "Traders","Concentration","Exposure","Analysis","CIT vs Disagg"]
+# Options Only: hide Spreading (options spreads ≠ calendar spreads) and CIT vs Disagg (CIT is fut-only)
+if is_options:
+    TAB_LABELS = ["Recap","Recap (Charts)","Spec","Commercial","Old / New",
+                  "Concentration","Scatter Plot"]
+else:
+    TAB_LABELS = ["Recap","Recap (Charts)","Spec","Commercial","Spreading","Old / New",
+                  "Concentration","Scatter Plot","CIT vs Disagg"]
 
 tabs = st.tabs(TAB_LABELS)
 
-with tabs[0]: render_recap(df, report, color)
-with tabs[1]: render_spec(df, report, color)
-with tabs[2]: render_commercial(df, report, color)
-with tabs[3]:
-    if report=="Disagg": render_spreading(df, color)
-    else: st.info("Spreading is only available for the Disaggregated report.")
-with tabs[4]:
-    if report=="Disagg" and df_all_crops is not None: render_old_new(df_all_crops, color)
-    else: st.info("Old / New crop split is only available for the Disaggregated report.")
-with tabs[5]: render_traders(df, report, color)
-with tabs[6]: render_concentration(df, color)
-with tabs[7]: render_exposure(df, commodity, color)
-with tabs[8]: render_analysis(df, report, color)
-with tabs[9]: render_comparison(commodity, start_date, end_date, color)
+if is_options:
+    with tabs[0]:  render_recap(df, report, color, commodity, is_options=True)
+    with tabs[1]:  render_recap_charts(df, report, color, commodity)
+    with tabs[2]:  render_spec(df, report, color)
+    with tabs[3]:  render_commercial(df, report, color)
+    with tabs[4]:
+        if df_all_crops is not None: render_old_new(df_all_crops, color)
+        else: st.info("Old / New crop split not available.")
+    with tabs[5]:  render_concentration(df, color)
+    with tabs[6]:  render_analysis(df, report, color)
+else:
+    with tabs[0]:  render_recap(df, report, color, commodity)
+    with tabs[1]:  render_recap_charts(df, report, color, commodity)
+    with tabs[2]:  render_spec(df, report, color)
+    with tabs[3]:  render_commercial(df, report, color)
+    with tabs[4]:
+        if report=="Disagg": render_spreading(df, color)
+        else: st.info("Spreading is only available for the Disaggregated report.")
+    with tabs[5]:
+        if report=="Disagg" and df_all_crops is not None: render_old_new(df_all_crops, color)
+        else: st.info("Old / New crop split is only available for the Disaggregated report.")
+    with tabs[6]:  render_concentration(df, color)
+    with tabs[7]:  render_analysis(df, report, color)
+    with tabs[8]:  render_comparison(commodity, start_date, end_date, color)
