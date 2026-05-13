@@ -302,12 +302,15 @@ def show_table(d: pd.DataFrame, pos_cols: list, chg_cols: list, label: str, n=60
         src = d.sort_values("Date", ascending=False).head(n).copy()
         dates = pd.to_datetime(src["Date"]).dt.strftime("%d %b '%y").tolist()
 
-        # build column data
+        # build column data — positions and deltas in k lots
         col_data = {}
         for col in avail_p:
-            col_data[col] = src[col].values
+            if col == "Px":
+                col_data[col] = src[col].values
+            else:
+                col_data[col] = (src[col] / 1000).values
         for col in avail_c:
-            col_data[f"Δ {col}"] = src[col].diff(-1).values  # newest-first diff
+            col_data[f"Δ {col}"] = (src[col].diff(-1) / 1000).values
         if "Px" in avail_p:
             col_data["Px Δ%"] = src["Px"].pct_change(-1).mul(100).values
         if "Total OI" in d.columns and "Total OI" not in avail_p:
@@ -316,21 +319,20 @@ def show_table(d: pd.DataFrame, pos_cols: list, chg_cols: list, label: str, n=60
         signed_cols = {c for c in col_data if c.startswith("Δ") or c == "Px Δ%"}
         px_cols     = {"Px"}
         pct_cols    = {"Px Δ%"}
-        oi_cols     = {"OI (k)"}
 
         def _fmt(col, v):
             if pd.isna(v): return "—"
-            if col in pct_cols:   return f"{v:+.2f}%"
-            if col in signed_cols: return f"{v:+,.0f}"
-            if col in px_cols:    return f"{v:.2f}"
-            if col in oi_cols:    return f"{v:,.1f}"
-            return f"{v:,.0f}"
+            if col in pct_cols:    return f"{v:+.2f}%"
+            if col in signed_cols: return f"{v:+,.1f}"
+            if col in px_cols:     return f"{v:.2f}"
+            return f"{v:,.1f}"
 
         headers = list(col_data.keys())
 
         hdr_html = "<tr><th class='idx sub'>Date</th>"
         for h in headers:
-            hdr_html += f"<th class='sub'>{h}</th>"
+            lbl = h if h in ("Px", "Px Δ%", "OI (k)") or h.startswith("Δ") else f"{h} (k)"
+            hdr_html += f"<th class='sub'>{lbl}</th>"
         hdr_html += "</tr>"
 
         body_html = ""
