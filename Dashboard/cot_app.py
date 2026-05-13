@@ -2717,6 +2717,8 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
         # helper: build NetVaR timeseries for one commodity + one spec column
         def _cross_ts(comm, df_source, spec_col):
             sub = df_source[df_source["Commodity"] == comm].copy()
+            if "Crop" in sub.columns:
+                sub = sub[sub["Crop"] == "All"]
             if sub.empty or spec_col not in sub.columns:
                 return None, None
             cv_df = _build_var_df(comm)
