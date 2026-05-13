@@ -2612,7 +2612,7 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
             var_s = var_df[["Date", vcol, "settlement"]].dropna().copy()
             var_s["vpl"] = var_s["settlement"] * lot * var_s[vcol] * _CONF_Z
 
-            extra = [c for c in [long_col, short_col] if c in df_c.columns]
+            extra = [c for c in [long_col, short_col] if c in df_c.columns and c != spec_sel]
             df_m = pd.merge_asof(
                 df_c.sort_values("Date")[["Date", spec_sel] + extra].dropna(subset=[spec_sel]),
                 var_s.sort_values("Date"),
