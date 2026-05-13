@@ -1055,36 +1055,36 @@ def render_old_new(d_crops, color):
                         "margin:14px 0 6px;letter-spacing:.04em'>MANAGED MONEY</div>",
                         unsafe_allow_html=True)
             mm1, mm2, mm3 = st.columns(3)
-            with mm1: st.plotly_chart(_sc("MM Net Old",   "MM Net — Old Crop  ·  k lots"),   width='stretch')
-            with mm2: st.plotly_chart(_sc("MM Net New",   "MM Net — New Crop  ·  k lots"),   width='stretch')
-            with mm3: st.plotly_chart(_sc("MM Diff",      "MM Net Old − New  ·  k lots"),    width='stretch')
+            with mm1: st.plotly_chart(_sc("MM Net Old",   "MM Net (Old)  ·  k lots"),   width='stretch')
+            with mm2: st.plotly_chart(_sc("MM Net New",   "MM Net (New)  ·  k lots"),   width='stretch')
+            with mm3: st.plotly_chart(_sc("MM Diff",      "MM Net (Old − New)  ·  k lots"),    width='stretch')
             mm4, mm5, _ = st.columns(3)
-            with mm4: st.plotly_chart(_sc("MM Long Old",  "MM Long — Old Crop  ·  k lots"),  width='stretch')
-            with mm5: st.plotly_chart(_sc("MM Long New",  "MM Long — New Crop  ·  k lots"),  width='stretch')
+            with mm4: st.plotly_chart(_sc("MM Long Old",  "MM Long (Old)  ·  k lots"),  width='stretch')
+            with mm5: st.plotly_chart(_sc("MM Long New",  "MM Long (New)  ·  k lots"),  width='stretch')
             mm6, mm7, _ = st.columns(3)
-            with mm6: st.plotly_chart(_sc("MM Short Old", "MM Short — Old Crop  ·  k lots"), width='stretch')
-            with mm7: st.plotly_chart(_sc("MM Short New", "MM Short — New Crop  ·  k lots"), width='stretch')
+            with mm6: st.plotly_chart(_sc("MM Short Old", "MM Short (Old)  ·  k lots"), width='stretch')
+            with mm7: st.plotly_chart(_sc("MM Short New", "MM Short (New)  ·  k lots"), width='stretch')
 
             # ── Commercial ────────────────────────────────────────────────────
             st.markdown("<div style='font-size:.75rem;font-weight:700;color:#374151;"
                         "margin:14px 0 6px;letter-spacing:.04em'>COMMERCIAL</div>",
                         unsafe_allow_html=True)
             cm1, cm2, _ = st.columns(3)
-            with cm1: st.plotly_chart(_sc("Comm Net Old",   "Comm Net — Old Crop  ·  k lots"),   width='stretch')
-            with cm2: st.plotly_chart(_sc("Comm Net New",   "Comm Net — New Crop  ·  k lots"),   width='stretch')
+            with cm1: st.plotly_chart(_sc("Comm Net Old",   "Comm Net (Old)  ·  k lots"),   width='stretch')
+            with cm2: st.plotly_chart(_sc("Comm Net New",   "Comm Net (New)  ·  k lots"),   width='stretch')
             cm3, cm4, _ = st.columns(3)
-            with cm3: st.plotly_chart(_sc("Comm Long Old",  "Comm Long — Old Crop  ·  k lots"),  width='stretch')
-            with cm4: st.plotly_chart(_sc("Comm Long New",  "Comm Long — New Crop  ·  k lots"),  width='stretch')
+            with cm3: st.plotly_chart(_sc("Comm Long Old",  "Comm Long (Old)  ·  k lots"),  width='stretch')
+            with cm4: st.plotly_chart(_sc("Comm Long New",  "Comm Long (New)  ·  k lots"),  width='stretch')
             cm5, cm6, _ = st.columns(3)
-            with cm5: st.plotly_chart(_sc("Comm Short Old", "Comm Short — Old Crop  ·  k lots"), width='stretch')
-            with cm6: st.plotly_chart(_sc("Comm Short New", "Comm Short — New Crop  ·  k lots"), width='stretch')
+            with cm5: st.plotly_chart(_sc("Comm Short Old", "Comm Short (Old)  ·  k lots"), width='stretch')
+            with cm6: st.plotly_chart(_sc("Comm Short New", "Comm Short (New)  ·  k lots"), width='stretch')
 
             # ── Open Interest ─────────────────────────────────────────────────
             st.markdown("<div style='font-size:.75rem;font-weight:700;color:#374151;"
                         "margin:14px 0 6px;letter-spacing:.04em'>OPEN INTEREST</div>",
                         unsafe_allow_html=True)
             oi1, oi2, _ = st.columns(3)
-            with oi1: st.plotly_chart(_sc("OI Old %", "OI Old Crop % of Total", "%"), width='stretch')
+            with oi1: st.plotly_chart(_sc("OI Old %", "OI % (Old)", "%"), width='stretch')
 
     # ── OI split ──────────────────────────────────────────────────────────────
     with st.expander("Open Interest — Old vs New Crop", expanded=False):
