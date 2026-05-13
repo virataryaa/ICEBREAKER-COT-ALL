@@ -305,6 +305,8 @@ def show_table(d: pd.DataFrame, pos_cols: list, chg_cols: list, label: str, n=60
             tbl[f"Δ {c}"] = d[c].diff().reindex(tbl.index)
         if "Px" in avail_p:
             tbl["Px Δ%"] = (d["Px"].pct_change() * 100).reindex(tbl.index).round(2)
+        if "Total OI" in d.columns and "Total OI" not in avail_p:
+            tbl["OI (k)"] = (d["Total OI"] / 1000).reindex(tbl.index).round(1)
         tbl = tbl.reset_index(drop=True)
         num_cols = [c for c in tbl.columns if c != "Date"]
 
@@ -325,6 +327,7 @@ def show_table(d: pd.DataFrame, pos_cols: list, chg_cols: list, label: str, n=60
         fmt["Px"]    = "{:.2f}"   if "Px"    in num_cols else None
         fmt["Px Δ%"] = "{:+.2f}%" if "Px Δ%" in num_cols else None
         fmt.update({f"Δ {c}": "{:+,.0f}" for c in avail_c if f"Δ {c}" in num_cols})
+        if "OI (k)" in num_cols: fmt["OI (k)"] = "{:,.1f}"
         fmt = {k: v for k, v in fmt.items() if v and k in num_cols}
 
         delta_cols = [c for c in num_cols if c.startswith("Δ") or c == "Px Δ%"]
