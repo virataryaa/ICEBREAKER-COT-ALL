@@ -2579,40 +2579,6 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
     long_col  = f"{base_name} Long"
     short_col = f"{base_name} Short"
 
-    # ── Expander 1: VaR per lot — current ────────────────────────────────────
-    with st.expander("VaR per lot — current", expanded=True):
-        rows_e1 = ""
-        for w in [20, 60, 120]:
-            vcol = f"vol_{w}"
-            if vcol not in var_df.columns:
-                continue
-            vdf_w = var_df.dropna(subset=[vcol])
-            if vdf_w.empty:
-                continue
-            row_l  = vdf_w.iloc[-1]
-            vol    = row_l[vcol]
-            px     = row_l.get("settlement", np.nan)
-            vpl    = px * lot * vol * _CONF_Z if pd.notna(px) and pd.notna(vol) else np.nan
-            hist   = vdf_w[vcol].iloc[max(0, len(vdf_w) - 504):]
-            pct    = float((hist < vol).mean() * 100) if len(hist) > 1 else np.nan
-            pc_col = ("#dc2626" if pd.notna(pct) and pct > 80
-                      else "#16a34a" if pd.notna(pct) and pct < 50 else "#d97706")
-            rows_e1 += (
-                f"<tr><td class='idx'>{w}D</td>"
-                f"<td>{'—' if pd.isna(px) else f'{px:.2f}'}</td>"
-                f"<td>{'—' if pd.isna(vol) else f'{vol*100:.2f}%'}</td>"
-                f"<td>{'—' if pd.isna(pct) else f"<span style='color:{pc_col};font-weight:700'>{pct:.0f}th</span>"}</td>"
-                f"<td style='font-weight:700'>{'—' if pd.isna(vpl) else f'${vpl:,.0f}'}</td></tr>"
-            )
-        hdr_e1 = ("<tr style='background:#f3f4f6'>"
-                  "<th class='idx'>Window</th><th>Front Price</th>"
-                  "<th>Daily σ</th><th>Vol %ile (2yr)</th><th>VaR / lot ($)</th></tr>")
-        st.markdown(
-            f"{_RECAP_CSS}<div style='overflow-x:auto'>"
-            f"<table class='rtbl'><thead>{hdr_e1}</thead><tbody>{rows_e1}</tbody></table></div>",
-            unsafe_allow_html=True,
-        )
-        st.caption(f"99% 1-day parametric VaR  ·  Rollex price × {lot} (lot$) × σ × 2.3263  ·  Roll-adjusted continuous price (no roll spikes)")
 
     # ── Expander 2: Spec Book VaR — Net/Long/Short + WoW change ──────────────
     with st.expander(f"Spec Book VaR — {spec_sel}  ·  {win_sel}D", expanded=True):
