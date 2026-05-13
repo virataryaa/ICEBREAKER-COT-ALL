@@ -1515,18 +1515,16 @@ def _build_nominal_df(d, commodity, report):
 
     if report == "CIT":
         cols = {
-            (grp, "Net Spec"):   gc("Spec Net")  * mult,
+            (grp, "Spec Net"):   (gc("Spec Net") + gc("Non Rep Net").fillna(0)) * mult,
             (grp, "Net Index"):  gc("Index Net") * mult,
             (grp, "Comm Long"):  gc("Comm Long") * mult,
             (grp, "Comm Short"): gc("Comm Short") * mult,
         }
     else:
         cols = {
-            (grp, "MM Net"):      gc("MM Net")       * mult,
-            (grp, "Swap Net"):    gc("Swap Net")      * mult,
-            (grp, "Other Net"):   gc("Other Net")     * mult,
-            (grp, "Non-Rep Net"): gc("Non Rep Net")   * mult,
-            (grp, "Comm Long"):   gc("Producer Long") * mult,
+            (grp, "Spec Net"):    (gc("MM Net") + gc("Other Net").fillna(0) + gc("Non Rep Net").fillna(0)) * mult,
+            (grp, "Swap Net"):    gc("Swap Net")       * mult,
+            (grp, "Comm Long"):   gc("Producer Long")  * mult,
             (grp, "Comm Short"):  gc("Producer Short") * mult,
         }
 
