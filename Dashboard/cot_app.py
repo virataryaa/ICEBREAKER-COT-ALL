@@ -856,6 +856,8 @@ def _on_seasonal_wide(d_crops):
         "MM Short Old":   old["MM Short"],   "MM Short New": other["MM Short"],
         "MM Diff":        old["MM Net"] - other["MM Net"],
         "Comm Net Old":   old["Comm Net"],   "Comm Net New": other["Comm Net"],
+        "Comm Long Old":  old["Producer Long"]  if "Producer Long"  in old.columns else pd.Series(dtype=float),
+        "Comm Long New":  other["Producer Long"] if "Producer Long"  in other.columns else pd.Series(dtype=float),
         "Comm Short Old": old["Producer Short"] if "Producer Short" in old.columns else pd.Series(dtype=float),
         "Comm Short New": other["Producer Short"] if "Producer Short" in other.columns else pd.Series(dtype=float),
         "Week": pd.Series(common.isocalendar().week.astype(int).values, index=common),
@@ -1022,7 +1024,7 @@ def render_old_new(d_crops, color):
     st.markdown(html + "</div>", unsafe_allow_html=True)
 
     # ── Crop year seasonality ─────────────────────────────────────────────────
-    with st.expander("Seasonality — Old vs New Crop Overlay  (adjustable start)", expanded=False):
+    with st.expander("Seasonality — Old vs New Crop  (adjustable start)", expanded=False):
         wide_full = _on_seasonal_wide(d_crops)
         if not wide_full.empty:
             sm = st.selectbox("Crop year starts in", list(range(1,13)),
@@ -1033,38 +1035,48 @@ def render_old_new(d_crops, color):
             wide_cy["CropWeek"] = pd.to_datetime(wide_cy["Date"]).apply(lambda d: _crop_week_num(d, sm))
             cur_cy = _current_crop_year_label(sm)
             st.markdown(
-                f"<p style='font-size:.75rem;color:{GRAY};margin-bottom:10px'>"
-                f"<span style='color:{C_OLD}'>■ Old Crop</span> &nbsp;·&nbsp; "
-                f"<span style='color:{C_NEW}'>■ New Crop</span> &nbsp;·&nbsp; "
-                f"Bold lines = current crop year ({cur_cy}) · Shaded band = 25–75th percentile</p>",
+                f"<p style='font-size:.75rem;color:{GRAY};margin-bottom:4px'>"
+                f"Each line = one crop year · Bold = current ({cur_cy}) · Shaded = 25–75th pct</p>",
                 unsafe_allow_html=True)
 
-            # Row 1: MM Net | Comm Net
-            r1a, r1b = st.columns(2)
-            with r1a:
-                st.plotly_chart(_seas_chart_overlay(wide_cy, "MM Net Old", "MM Net New",
-                    "MM Net — Old vs New Crop  ·  k lots", "k lots", sm=sm), width='stretch')
-            with r1b:
-                st.plotly_chart(_seas_chart_overlay(wide_cy, "Comm Net Old", "Comm Net New",
-                    "Comm Net — Old vs New Crop  ·  k lots", "k lots", sm=sm), width='stretch')
+            def _sc(metric, title, ylabel="k lots"):
+                return _seas_chart(wide_cy, metric, title, color, ylabel, by_week=False, sm=sm)
 
-            # Row 2: MM Long | MM Short
-            r2a, r2b = st.columns(2)
-            with r2a:
-                st.plotly_chart(_seas_chart_overlay(wide_cy, "MM Long Old", "MM Long New",
-                    "MM Long — Old vs New Crop  ·  k lots", "k lots", sm=sm), width='stretch')
-            with r2b:
-                st.plotly_chart(_seas_chart_overlay(wide_cy, "MM Short Old", "MM Short New",
-                    "MM Short — Old vs New Crop  ·  k lots", "k lots", sm=sm), width='stretch')
+            # ── Managed Money ─────────────────────────────────────────────────
+            st.markdown("<div style='font-size:.75rem;font-weight:700;color:#374151;"
+                        "margin:14px 0 6px;letter-spacing:.04em'>MANAGED MONEY</div>",
+                        unsafe_allow_html=True)
+            mm1, mm2, mm3 = st.columns(3)
+            with mm1: st.plotly_chart(_sc("MM Net Old",   "MM Net — Old Crop  ·  k lots"),   width='stretch')
+            with mm2: st.plotly_chart(_sc("MM Net New",   "MM Net — New Crop  ·  k lots"),   width='stretch')
+            with mm3: st.plotly_chart(_sc("MM Diff",      "MM Net Old − New  ·  k lots"),    width='stretch')
+            mm4, mm5, _ = st.columns(3)
+            with mm4: st.plotly_chart(_sc("MM Long Old",  "MM Long — Old Crop  ·  k lots"),  width='stretch')
+            with mm5: st.plotly_chart(_sc("MM Long New",  "MM Long — New Crop  ·  k lots"),  width='stretch')
+            mm6, mm7, _ = st.columns(3)
+            with mm6: st.plotly_chart(_sc("MM Short Old", "MM Short — Old Crop  ·  k lots"), width='stretch')
+            with mm7: st.plotly_chart(_sc("MM Short New", "MM Short — New Crop  ·  k lots"), width='stretch')
 
-            # Row 3: OI Old % | MM Diff
-            r3a, r3b = st.columns(2)
-            with r3a:
-                st.plotly_chart(_seas_chart(wide_cy, "OI Old %", "OI Old Crop % of Total",
-                    color, "%", by_week=False, sm=sm), width='stretch')
-            with r3b:
-                st.plotly_chart(_seas_chart(wide_cy, "MM Diff", "MM Net Old minus New  ·  k lots",
-                    color, "k lots", by_week=False, sm=sm), width='stretch')
+            # ── Commercial ────────────────────────────────────────────────────
+            st.markdown("<div style='font-size:.75rem;font-weight:700;color:#374151;"
+                        "margin:14px 0 6px;letter-spacing:.04em'>COMMERCIAL</div>",
+                        unsafe_allow_html=True)
+            cm1, cm2, _ = st.columns(3)
+            with cm1: st.plotly_chart(_sc("Comm Net Old",   "Comm Net — Old Crop  ·  k lots"),   width='stretch')
+            with cm2: st.plotly_chart(_sc("Comm Net New",   "Comm Net — New Crop  ·  k lots"),   width='stretch')
+            cm3, cm4, _ = st.columns(3)
+            with cm3: st.plotly_chart(_sc("Comm Long Old",  "Comm Long — Old Crop  ·  k lots"),  width='stretch')
+            with cm4: st.plotly_chart(_sc("Comm Long New",  "Comm Long — New Crop  ·  k lots"),  width='stretch')
+            cm5, cm6, _ = st.columns(3)
+            with cm5: st.plotly_chart(_sc("Comm Short Old", "Comm Short — Old Crop  ·  k lots"), width='stretch')
+            with cm6: st.plotly_chart(_sc("Comm Short New", "Comm Short — New Crop  ·  k lots"), width='stretch')
+
+            # ── Open Interest ─────────────────────────────────────────────────
+            st.markdown("<div style='font-size:.75rem;font-weight:700;color:#374151;"
+                        "margin:14px 0 6px;letter-spacing:.04em'>OPEN INTEREST</div>",
+                        unsafe_allow_html=True)
+            oi1, oi2, _ = st.columns(3)
+            with oi1: st.plotly_chart(_sc("OI Old %", "OI Old Crop % of Total", "%"), width='stretch')
 
     # ── OI split ──────────────────────────────────────────────────────────────
     with st.expander("Open Interest — Old vs New Crop", expanded=False):
