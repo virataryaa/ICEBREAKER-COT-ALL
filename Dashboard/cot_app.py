@@ -196,6 +196,17 @@ def load_options_only() -> pd.DataFrame:
     df[invalid_cols] = np.nan
     return df.sort_values(["Commodity","Crop","Date"]).reset_index(drop=True)
 
+
+@st.cache_data(ttl=600)
+def load_roll_yield() -> pd.DataFrame:
+    path = DB_DIR / "RollYield" / "roll_yield_data.parquet"
+    if not path.exists():
+        return pd.DataFrame(columns=["Date","Commodity","roll_yield_pct"])
+    df = pd.read_parquet(path)
+    df["Date"] = pd.to_datetime(df["Date"])
+    df["roll_yield_pct"] = (df["c1"] - df["c2"]) / df["c2"] * 100
+    return df[["Date","Commodity","roll_yield_pct"]].sort_values(["Commodity","Date"]).reset_index(drop=True)
+
 @st.cache_data(ttl=600)
 def load_rollex(commodity: str) -> pd.DataFrame:
     fname = ROLLEX_MAP.get(commodity)
@@ -2292,6 +2303,91 @@ def render_recap_charts(d, report, color, commodity):
                 {"MM+Other Long": mm_all_l, "MM+Other Short": mm_all_s},
                 [C_LONG, C_SHORT]
             ), width='stretch')
+
+    # ── Roll Yield vs Positioning ──────────────────────────────────────────────
+    with st.expander("Roll Yield vs Positioning", expanded=True):
+        ry_all = load_roll_yield()
+        ry_comm = ry_all[ry_all["Commodity"] == commodity].copy()
+        if ry_comm.empty:
+            st.info("Roll yield data not available for this commodity.")
+        else:
+            cot_sorted = d.sort_values("Date").copy()
+            ry_sorted  = ry_comm.sort_values("Date")
+            merged_ry  = pd.merge_asof(cot_sorted, ry_sorted[["Date","roll_yield_pct"]], on="Date", direction="backward")
+
+            ry_vals = merged_ry["roll_yield_pct"].values.astype(float)
+
+            if report == "CIT":
+                short_vals = ((gc("Spec Short") + gc("Non Rep Short")) / 1000).values.astype(float)
+                net_vals   = (gc("Spec Net") / 1000).values.astype(float)
+                short_lbl  = "Spec + Non-Rep Short (k lots)"
+                net_lbl    = "Spec Net (k lots)"
+            else:
+                short_vals = ((gc("MM Short") + gc("Other Short") + gc("Non Rep Short")) / 1000).values.astype(float)
+                net_vals   = (gc("MM Net") / 1000).values.astype(float)
+                short_lbl  = "MM + Other + Non-Rep Short (k lots)"
+                net_lbl    = "MM Net (k lots)"
+
+            def _ry_scatter(x, y, ylabel, title):
+                mask = ~(np.isnan(x) | np.isnan(y))
+                xm, ym = x[mask], y[mask]
+                if len(xm) < 5:
+                    return go.Figure()
+                # polynomial trendline degree 2
+                coeffs = np.polyfit(xm, ym, 2)
+                x_line = np.linspace(xm.min(), xm.max(), 200)
+                y_line = np.polyval(coeffs, x_line)
+                # R²
+                y_hat  = np.polyval(coeffs, xm)
+                ss_res = np.sum((ym - y_hat) ** 2)
+                ss_tot = np.sum((ym - ym.mean()) ** 2)
+                r2     = 1 - ss_res / ss_tot if ss_tot > 0 else 0
+
+                fig = go.Figure()
+                # all points
+                fig.add_trace(go.Scatter(
+                    x=xm, y=ym, mode="markers",
+                    marker=dict(color=color, size=6, opacity=0.65, line=dict(width=0.4, color="white")),
+                    hovertemplate="Roll Yield: %{x:.1f}%<br>" + ylabel.split(" (")[0] + ": %{y:.1f}k<extra></extra>",
+                    showlegend=False,
+                ))
+                # trendline
+                fig.add_trace(go.Scatter(
+                    x=x_line, y=y_line, mode="lines",
+                    line=dict(color=color, width=1.5, dash="dot"),
+                    showlegend=False,
+                ))
+                # latest point
+                fig.add_trace(go.Scatter(
+                    x=[x[~np.isnan(x) & ~np.isnan(y)][-1]],
+                    y=[y[~np.isnan(x) & ~np.isnan(y)][-1]],
+                    mode="markers",
+                    marker=dict(color="#f97316", size=10, symbol="circle", line=dict(width=1.5, color="white")),
+                    showlegend=False,
+                    hovertemplate="<b>Latest</b><br>Roll Yield: %{x:.1f}%<br>" + ylabel.split(" (")[0] + ": %{y:.1f}k<extra></extra>",
+                ))
+                fig.add_annotation(
+                    x=0.98, y=0.98, xref="paper", yref="paper",
+                    text=f"R² = {r2:.4f}", showarrow=False,
+                    font=dict(size=13, color="#111"), bgcolor="rgba(255,255,255,0.7)",
+                    borderpad=4, xanchor="right", yanchor="top",
+                )
+                fig.update_layout(
+                    **_BASE,
+                    title=dict(text=f"{commodity} — {title}", font=dict(size=11, color="#374151")),
+                    height=380,
+                    margin=dict(l=48, r=16, t=44, b=48),
+                    xaxis=dict(**_ax(), title=dict(text="Roll Yield (c1−c2)/c2  (%)", font=dict(size=9)), tickformat=".1f", ticksuffix="%"),
+                    yaxis=dict(**_ax(), title=dict(text=ylabel, font=dict(size=9))),
+                    showlegend=False,
+                )
+                return fig
+
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.plotly_chart(_ry_scatter(ry_vals, short_vals, short_lbl, "Large Spec Short vs Roll Yield"), width='stretch')
+            with col_b:
+                st.plotly_chart(_ry_scatter(ry_vals, net_vals, net_lbl, "Net Spec vs Roll Yield"), width='stretch')
 
 
 # ══════════════════════════════════════════════════════════════════════════════
