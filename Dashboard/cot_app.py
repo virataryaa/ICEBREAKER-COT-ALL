@@ -905,6 +905,80 @@ def _seas_chart(wide, metric, title, accent, ylabel="k lots", by_week=True, sm=C
     return fig
 
 
+
+def _seas_chart_overlay(wide, metric_old, metric_new, title, ylabel, sm=CROP_START_MONTH):
+    """Seasonality chart overlaying Old Crop and New Crop on the same axes."""
+    if wide.empty:
+        return go.Figure().update_layout(**_BASE, height=360)
+    cur = _current_crop_year_label(sm)
+
+    def _pivot(metric):
+        if metric not in wide.columns:
+            return None
+        pv = wide.pivot_table(index="CropWeek", columns="CropYear", values=metric, aggfunc="mean")
+        return pv[pv.index <= 52]
+
+    pv_old = _pivot(metric_old)
+    pv_new = _pivot(metric_new)
+
+    fig = go.Figure()
+
+    for pv, clr_hist, clr_cur, clr_band, label in [
+        (pv_old, "rgba(230,126,34,0.15)", C_OLD, "rgba(230,126,34,0.12)", "Old Crop"),
+        (pv_new, "rgba(41,128,185,0.15)",  C_NEW, "rgba(41,128,185,0.12)",  "New Crop"),
+    ]:
+        if pv is None:
+            continue
+        hist_cols = [c2 for c2 in pv.columns if c2 != cur]
+        hist = pv[hist_cols] if hist_cols else pv
+
+        # faint historical lines
+        for yr in hist_cols:
+            fig.add_trace(go.Scatter(
+                x=pv.index, y=hist[yr], mode="lines",
+                line=dict(color=clr_hist, width=1),
+                showlegend=False, hoverinfo="skip"
+            ))
+
+        # IQR band
+        if len(hist_cols) >= 4:
+            p25 = hist.quantile(0.25, axis=1)
+            p75 = hist.quantile(0.75, axis=1)
+            xs  = list(p75.index) + list(p75.index[::-1])
+            fig.add_trace(go.Scatter(
+                x=xs, y=list(p75.values) + list(p25.values[::-1]),
+                fill="toself", fillcolor=clr_band,
+                line=dict(width=0), name=f"{label} 25-75%", hoverinfo="skip"
+            ))
+
+        # current crop year — bold
+        if cur in pv.columns:
+            cy = pv[cur].dropna()
+            fig.add_trace(go.Scatter(
+                x=cy.index, y=cy.values, mode="lines+markers",
+                name=f"{label} {cur}",
+                line=dict(color=clr_cur, width=2.6),
+                marker=dict(size=4, color=clr_cur),
+                hovertemplate=f"<b>{label} {cur}</b><br>Week %{{x}}: %{{y:.1f}}<extra></extra>"
+            ))
+
+    fig.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.12)")
+    xticks = dict(
+        tickvals=list(CROP_WEEK_TICKS.keys()),
+        ticktext=[_MONTHS[(sm - 1 + i) % 12] for i in range(12)]
+    )
+    fig.update_layout(
+        **_BASE, height=360,
+        title=dict(text=title, font=dict(size=12, color="#444"), x=0),
+        margin=dict(l=50, r=20, t=40, b=70),
+        legend=dict(orientation="h", y=-0.22, x=0.5, xanchor="center",
+                    font_size=10, bgcolor="rgba(0,0,0,0)"),
+        xaxis=dict(**_ax(x=True), **xticks),
+        yaxis=dict(**_ax(), title_text=ylabel, title_font_size=10),
+    )
+    return fig
+
+
 def render_old_new(d_crops, color):
     old   = d_crops[d_crops["Crop"]=="Old"].set_index("Date").sort_index()
     other = d_crops[d_crops["Crop"]=="Other"].set_index("Date").sort_index()
@@ -945,7 +1019,7 @@ def render_old_new(d_crops, color):
     st.markdown(html + "</div>", unsafe_allow_html=True)
 
     # ── Crop year seasonality ─────────────────────────────────────────────────
-    with st.expander("Seasonality — Crop Year  (adjustable start)", expanded=False):
+    with st.expander("Seasonality — Old vs New Crop Overlay  (adjustable start)", expanded=False):
         wide_full = _on_seasonal_wide(d_crops)
         if not wide_full.empty:
             sm = st.selectbox("Crop year starts in", list(range(1,13)),
@@ -955,26 +1029,39 @@ def render_old_new(d_crops, color):
             wide_cy["CropYear"] = pd.to_datetime(wide_cy["Date"]).apply(lambda d: _crop_year_label(d, sm))
             wide_cy["CropWeek"] = pd.to_datetime(wide_cy["Date"]).apply(lambda d: _crop_week_num(d, sm))
             cur_cy = _current_crop_year_label(sm)
-            st.markdown(f"<p style='font-size:.75rem;color:{GRAY};margin-bottom:10px'>"
-                        f"Each line = one crop year · Bold <span style='color:{C_OLD}'>{cur_cy}</span> = current</p>",
-                        unsafe_allow_html=True)
-            pairs = [
-                ("OI Old %","OI Old Crop % of Total","%"),
-                ("MM Diff","MM Net Old minus New · k lots","k lots"),
-                ("MM Net Old","MM Net — Old Crop","k lots"),
-                ("MM Net New","MM Net — New Crop","k lots"),
-                ("MM Long Old","MM Long — Old Crop","k lots"),
-                ("MM Long New","MM Long — New Crop","k lots"),
-                ("MM Short Old","MM Short — Old Crop","k lots"),
-                ("MM Short New","MM Short — New Crop","k lots"),
-                ("Comm Net Old","Comm Net — Old Crop","k lots"),
-                ("Comm Net New","Comm Net — New Crop","k lots"),
-            ]
-            for i in range(0, len(pairs), 2):
-                c1, c2 = st.columns(2)
-                with c1: st.plotly_chart(_seas_chart(wide_cy, pairs[i][0], pairs[i][1], color, pairs[i][2], by_week=False, sm=sm), width='stretch')
-                if i+1 < len(pairs):
-                    with c2: st.plotly_chart(_seas_chart(wide_cy, pairs[i+1][0], pairs[i+1][1], color, pairs[i+1][2], by_week=False, sm=sm), width='stretch')
+            st.markdown(
+                f"<p style='font-size:.75rem;color:{GRAY};margin-bottom:10px'>"
+                f"<span style='color:{C_OLD}'>■ Old Crop</span> &nbsp;·&nbsp; "
+                f"<span style='color:{C_NEW}'>■ New Crop</span> &nbsp;·&nbsp; "
+                f"Bold lines = current crop year ({cur_cy}) · Shaded band = 25–75th percentile</p>",
+                unsafe_allow_html=True)
+
+            # Row 1: MM Net | Comm Net
+            r1a, r1b = st.columns(2)
+            with r1a:
+                st.plotly_chart(_seas_chart_overlay(wide_cy, "MM Net Old", "MM Net New",
+                    "MM Net — Old vs New Crop  ·  k lots", "k lots", sm=sm), width='stretch')
+            with r1b:
+                st.plotly_chart(_seas_chart_overlay(wide_cy, "Comm Net Old", "Comm Net New",
+                    "Comm Net — Old vs New Crop  ·  k lots", "k lots", sm=sm), width='stretch')
+
+            # Row 2: MM Long | MM Short
+            r2a, r2b = st.columns(2)
+            with r2a:
+                st.plotly_chart(_seas_chart_overlay(wide_cy, "MM Long Old", "MM Long New",
+                    "MM Long — Old vs New Crop  ·  k lots", "k lots", sm=sm), width='stretch')
+            with r2b:
+                st.plotly_chart(_seas_chart_overlay(wide_cy, "MM Short Old", "MM Short New",
+                    "MM Short — Old vs New Crop  ·  k lots", "k lots", sm=sm), width='stretch')
+
+            # Row 3: OI Old % | MM Diff
+            r3a, r3b = st.columns(2)
+            with r3a:
+                st.plotly_chart(_seas_chart(wide_cy, "OI Old %", "OI Old Crop % of Total",
+                    color, "%", by_week=False, sm=sm), width='stretch')
+            with r3b:
+                st.plotly_chart(_seas_chart(wide_cy, "MM Diff", "MM Net Old minus New  ·  k lots",
+                    color, "k lots", by_week=False, sm=sm), width='stretch')
 
     # ── OI split ──────────────────────────────────────────────────────────────
     with st.expander("Open Interest — Old vs New Crop", expanded=False):
