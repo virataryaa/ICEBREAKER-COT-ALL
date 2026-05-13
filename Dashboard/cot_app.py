@@ -2493,6 +2493,31 @@ def render_recap_charts(d, report, color, commodity):
             with col_b:
                 st.plotly_chart(_ry_scatter(ry_vals, net_vals, net_lbl, "Net Spec vs Roll Yield"), width='stretch')
 
+            st.markdown("---")
+            if report == "CIT":
+                _ry_opts = [c for c in [
+                    "Spec Net","Spec Long","Spec Short",
+                    "Index Net","Index Long","Index Short",
+                    "Non Rep Net","Non Rep Long","Non Rep Short",
+                    "Comm Net","Comm Long","Comm Short","Total OI",
+                ] if c in merged_ry.columns]
+            else:
+                _ry_opts = [c for c in [
+                    "MM Net","MM Long","MM Short",
+                    "Other Net","Other Long","Other Short",
+                    "Non Rep Net","Non Rep Long","Non Rep Short",
+                    "Comm Net","Combined Spec Net",
+                    "Swap Net","Swap Long","Swap Short",
+                    "Comm Long","Comm Short","Total OI",
+                ] if c in merged_ry.columns]
+
+            _ry_sel = st.selectbox("Y-axis element", _ry_opts, key=f"ry_custom_{commodity}")
+            _ry_yvals = (merged_ry[_ry_sel] / 1000).values.astype(float)
+            st.plotly_chart(
+                _ry_scatter(ry_vals, _ry_yvals, f"{_ry_sel} (k lots)", f"{_ry_sel} vs Roll Yield"),
+                width='stretch',
+            )
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SPEC VAR TAB
