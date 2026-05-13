@@ -2970,6 +2970,9 @@ def render_pairs(start_date=None, end_date=None):
 if is_options:
     TAB_LABELS = ["Recap","Recap (Charts)","Spec","Commercial","Old / New",
                   "Concentration","Scatter Plot","Spec VaR","Pairs"]
+elif report == "CIT":
+    TAB_LABELS = ["Recap","Recap (Charts)","Spec","Commercial",
+                  "Scatter Plot","CIT vs Disagg","Spec VaR","Pairs"]
 else:
     TAB_LABELS = ["Recap","Recap (Charts)","Spec","Commercial","Spreading","Old / New",
                   "Concentration","Scatter Plot","CIT vs Disagg","Spec VaR","Pairs"]
@@ -2988,17 +2991,24 @@ if is_options:
     with tabs[6]:  render_analysis(df, report, color)
     with tabs[7]:  render_spec_var(commodity, df, report, color, start_date, end_date)
     with tabs[8]:  render_pairs(start_date, end_date)
+elif report == "CIT":
+    with tabs[0]:  render_recap(df, report, color, commodity)
+    with tabs[1]:  render_recap_charts(df, report, color, commodity)
+    with tabs[2]:  render_spec(df, report, color)
+    with tabs[3]:  render_commercial(df, report, color)
+    with tabs[4]:  render_analysis(df, report, color)
+    with tabs[5]:  render_comparison(commodity, start_date, end_date, color)
+    with tabs[6]:  render_spec_var(commodity, df, report, color, start_date, end_date)
+    with tabs[7]:  render_pairs(start_date, end_date)
 else:
     with tabs[0]:  render_recap(df, report, color, commodity)
     with tabs[1]:  render_recap_charts(df, report, color, commodity)
     with tabs[2]:  render_spec(df, report, color)
     with tabs[3]:  render_commercial(df, report, color)
-    with tabs[4]:
-        if report=="Disagg": render_spreading(df, color)
-        else: st.info("Spreading is only available for the Disaggregated report.")
+    with tabs[4]:  render_spreading(df, color)
     with tabs[5]:
-        if report=="Disagg" and df_all_crops is not None: render_old_new(df_all_crops, color)
-        else: st.info("Old / New crop split is only available for the Disaggregated report.")
+        if df_all_crops is not None: render_old_new(df_all_crops, color)
+        else: st.info("Old / New crop split not available.")
     with tabs[6]:  render_concentration(df, color)
     with tabs[7]:  render_analysis(df, report, color)
     with tabs[8]:  render_comparison(commodity, start_date, end_date, color)
