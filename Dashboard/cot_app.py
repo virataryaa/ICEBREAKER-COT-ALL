@@ -2704,8 +2704,8 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
                     hovermode="x unified",
                 )
                 fig.update_yaxes(title_text="Book VaR ($M)", **_ax(), secondary_y=False)
-                fig.update_yaxes(title_text="Front Settlement", **_ax(),
-                                 showgrid=False, secondary_y=True)
+                fig.update_yaxes(title_text="Front Settlement",
+                                 **{**_ax(), "showgrid": False}, secondary_y=True)
                 fig.update_xaxes(**_ax(x=True))
                 st.plotly_chart(fig, use_container_width=True)
 
