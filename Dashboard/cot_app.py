@@ -2933,27 +2933,30 @@ def render_pairs(start_date=None, end_date=None):
         st.markdown("")
 
         # Dual-axis timeseries
+        st.markdown(
+            f"<div style='font-size:.78rem;font-weight:600;color:#374151;margin-bottom:4px'>"
+            f"{sel_leg}  —  {COMM_NAMES[comm_a]}  vs  {COMM_NAMES[comm_b]}</div>",
+            unsafe_allow_html=True,
+        )
         fig2 = make_subplots(specs=[[{"secondary_y": True}]])
         fig2.add_trace(go.Scatter(
             x=mg["Date"], y=sa, mode="lines",
-            name=f"{COMM_NAMES[comm_a]}",
+            name=comm_a,
             line=dict(color=clr_a, width=1.9),
         ), secondary_y=False)
         fig2.add_trace(go.Scatter(
             x=mg["Date"], y=sb, mode="lines",
-            name=f"{COMM_NAMES[comm_b]}",
+            name=comm_b,
             line=dict(color=clr_b, width=1.9),
         ), secondary_y=True)
         fig2.update_layout(
-            **_BASE, height=360,
-            title=dict(text=f"{sel_leg}  —  {COMM_NAMES[comm_a]}  vs  {COMM_NAMES[comm_b]}",
-                       font=dict(size=11, color="#374151")),
-            legend=dict(orientation="h", yanchor="bottom", y=1.06, xanchor="left", x=0),
-            margin=dict(l=0, r=0, t=44, b=0), hovermode="x unified",
+            **_BASE, height=340,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+            margin=dict(l=0, r=0, t=10, b=0), hovermode="x unified",
             xaxis=dict(**_ax(x=True)),
         )
-        fig2.update_yaxes(**{**_ax(), "title_text": f"{comm_a}  k lots"}, secondary_y=False)
-        fig2.update_yaxes(**{**_ax(), "title_text": f"{comm_b}  k lots", "showgrid": False}, secondary_y=True)
+        fig2.update_yaxes(**{**_ax(), "title_text": f"{comm_a} k lots"}, secondary_y=False)
+        fig2.update_yaxes(**{**_ax(), "title_text": f"{comm_b} k lots", "showgrid": False}, secondary_y=True)
         st.plotly_chart(fig2, use_container_width=True, key=f"pair_leg_{comm_a}{comm_b}")
 
         # Correlation scatter
@@ -2979,10 +2982,8 @@ def render_pairs(start_date=None, end_date=None):
                 showlegend=False,
             ))
             fig3.update_layout(
-                **_BASE, height=340,
-                title=dict(text=f"{comm_a} vs {comm_b}  —  {sel_leg}  weekly change",
-                           font=dict(size=11, color="#374151")),
-                margin=dict(l=48, r=16, t=44, b=48),
+                **_BASE, height=320,
+                margin=dict(l=48, r=16, t=16, b=48),
                 xaxis=dict(**_ax(), title=dict(text=f"{comm_a} weekly change (k lots)", font=dict(size=9))),
                 yaxis=dict(**_ax(), title=dict(text=f"{comm_b} weekly change (k lots)", font=dict(size=9))),
                 showlegend=False,
