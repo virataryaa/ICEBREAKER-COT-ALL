@@ -2201,12 +2201,12 @@ with st.sidebar:
         unsafe_allow_html=True)
 
     commodity = st.selectbox("Commodity", list(COMM_NAMES.keys()),
-                             format_func=lambda x: COMM_NAMES[x])
+                             format_func=lambda x: COMM_NAMES[x], key="sb_commodity")
     color = COMM_COLORS[commodity]
 
     cit_ok = commodity in CIT_COMMS
     if cit_ok:
-        report = st.radio("Report", ["CIT","Disagg"], horizontal=True)
+        report = st.radio("Report", ["CIT","Disagg"], horizontal=True, key="rb_report")
     else:
         report = "Disagg"
         st.markdown("<div style='font-size:.73rem;color:#999;margin:-6px 0 8px'>"
@@ -2214,7 +2214,7 @@ with st.sidebar:
 
     version_key = None
     if report == "Disagg":
-        version = st.radio("Version", ["F&O combined","Fut only","Options only"], horizontal=True)
+        version = st.radio("Version", ["F&O combined","Fut only","Options only"], horizontal=True, key="rb_version")
         version_key = "F&O" if "F&O" in version else ("Opt" if "Options" in version else "Fut")
 
     st.markdown("---")
@@ -2747,7 +2747,7 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
             }
             return mc[["Date","NetVaR"]].copy(), snap_info
 
-        def _render_cross_section(comms, df_source, spec_opts_list, sel_key):
+        def _render_cross_section(comms, df_source, spec_opts_list, sel_key, chart_key):
             c_spec = st.selectbox("Spec", spec_opts_list, key=sel_key)
             # derive MM+Other if needed
             df_src = df_source.copy()
@@ -2797,7 +2797,7 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
                 yaxis=dict(**_ax(), title=dict(text="Net VaR ($M)", font=dict(size=9))),
                 xaxis=dict(**_ax(x=True)),
             )
-            st.plotly_chart(fig_x, use_container_width=True)
+            st.plotly_chart(fig_x, use_container_width=True, key=chart_key)
 
         # ── Section A: Disagg F&O — all 6 commodities ─────────────────────────
         st.markdown("**Disagg F&O — all commodities**  ·  <span style='font-size:.75rem;color:#888'>always Disagg F&O regardless of sidebar selection</span>", unsafe_allow_html=True)
@@ -2806,6 +2806,7 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
             list(COMM_NAMES.keys()), disagg_fo,
             ["MM Net", "MM + Other Net", "Combined Spec Net"],
             f"var_cross_disagg_{commodity}",
+            f"var_cross_chart_disagg_{commodity}",
         )
 
         st.markdown("---")
@@ -2817,6 +2818,7 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
             ["KC", "CC", "SB", "CT"], cit_all,
             ["Spec Net", "Index Net", "Non Rep Net", "Combined Spec Net"],
             f"var_cross_cit_{commodity}",
+            f"var_cross_chart_cit_{commodity}",
         )
 
 # ══════════════════════════════════════════════════════════════════════════════
