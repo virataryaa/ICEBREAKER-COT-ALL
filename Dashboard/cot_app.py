@@ -295,22 +295,25 @@ def _get_y(d, col, unit):
         return (d[col] / d["Total OI"] * 100).round(2)
     return pd.Series(dtype=float)
 
-def show_table(d: pd.DataFrame, pos_cols: list, chg_cols: list, label: str, n=60):
+def show_table(d: pd.DataFrame, pos_cols: list, chg_cols: list, label: str, n=60, scale=True):
     with st.expander(label, expanded=False):
         avail_p = [c for c in pos_cols if c and c in d.columns]
         avail_c = [c for c in chg_cols if c and c in d.columns]
         src = d.sort_values("Date", ascending=False).head(n).copy()
         dates = pd.to_datetime(src["Date"]).dt.strftime("%d %b '%y").tolist()
 
-        # build column data — positions and deltas in k lots
+        # build column data — positions and deltas in k lots (unless scale=False)
         col_data = {}
         for col in avail_p:
-            if col == "Px":
+            if col == "Px" or not scale:
                 col_data[col] = src[col].values
             else:
                 col_data[col] = (src[col] / 1000).values
         for col in avail_c:
-            col_data[f"Δ {col}"] = (src[col].diff(-1) / 1000).values
+            if scale:
+                col_data[f"Δ {col}"] = (src[col].diff(-1) / 1000).values
+            else:
+                col_data[f"Δ {col}"] = src[col].diff(-1).values
         if "Px" in avail_p:
             col_data["Px Δ%"] = src["Px"].pct_change(-1).mul(100).values
         if "Total OI" in d.columns and "Total OI" not in avail_p:
@@ -331,7 +334,7 @@ def show_table(d: pd.DataFrame, pos_cols: list, chg_cols: list, label: str, n=60
 
         hdr_html = "<tr><th class='idx sub'>Date</th>"
         for h in headers:
-            lbl = h if h in ("Px", "Px Δ%", "OI (k)") or h.startswith("Δ") else f"{h} (k)"
+            lbl = h if not scale or h in ("Px", "Px Δ%", "OI (k)") or h.startswith("Δ") else f"{h} (k)"
             hdr_html += f"<th class='sub'>{lbl}</th>"
         hdr_html += "</tr>"
 
@@ -1246,7 +1249,7 @@ def render_traders(d, report, color):
                     yaxis=dict(**_ax()))
                 st.plotly_chart(fb, width='stretch')
 
-    show_table(d, all_t, sel_cols, "Data table — trader counts")
+    show_table(d, all_t, sel_cols, "Data table — trader counts", scale=False)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1767,7 +1770,7 @@ def render_concentration(d, color):
             yaxis=dict(**_ax(),title_text="% of OI",title_font_size=10))
         st.plotly_chart(fig, width='stretch')
 
-    show_table(d, avail, avail[:4], "Data table — Concentration ratios")
+    show_table(d, avail, avail[:4], "Data table — Concentration ratios", scale=False)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
