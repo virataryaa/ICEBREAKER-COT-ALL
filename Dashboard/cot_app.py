@@ -2896,13 +2896,6 @@ def render_pairs(start_date=None, end_date=None):
 
         sa = _col(comm_a, sel_leg)
         sb = _col(comm_b, sel_leg)
-        va = sa.iloc[-1] if len(sa) else np.nan
-        vb = sb.iloc[-1] if len(sb) else np.nan
-
-        def _fv2(v):
-            if pd.isna(v): return "—"
-            cls = "rpos" if v > 0 else "rneg"
-            return f"<span class='{cls}'>{v:.0f}k</span>"
 
         sa_chg = sa.diff().dropna()
         sb_chg = sb.diff().dropna()
@@ -2910,27 +2903,6 @@ def render_pairs(start_date=None, end_date=None):
         r_val  = None
         if len(shared) > 5:
             r_val = float(np.corrcoef(sa_chg.loc[shared].values, sb_chg.loc[shared].values)[0, 1])
-
-        hdr = (f"<tr style='background:#f3f4f6'><th class='idx'>Metric</th>"
-               f"<th>{COMM_NAMES[comm_a]}</th><th>{COMM_NAMES[comm_b]}</th></tr>")
-        rows_html = (f"<tr><td class='idx'>{sel_leg} — latest</td>"
-                     f"<td>{_fv2(va)}</td><td>{_fv2(vb)}</td></tr>")
-        st.markdown(
-            f"{_RECAP_CSS}<div style='overflow-x:auto'><table class='rtbl'>"
-            f"<thead>{hdr}</thead><tbody>{rows_html}</tbody></table></div>",
-            unsafe_allow_html=True,
-        )
-
-        if r_val is not None:
-            r_color = "#16a34a" if r_val > 0.4 else ("#dc2626" if r_val < -0.4 else "#888")
-            st.markdown(
-                f"<div style='margin:8px 0 14px;padding:8px 14px;background:rgba(0,0,0,.03);"
-                f"border-radius:7px;display:inline-block;font-size:.82rem'>"
-                f"Pearson r  ({comm_a} vs {comm_b}  ·  {sel_leg}  weekly change) : "
-                f"<span style='font-weight:700;font-size:.95rem;color:{r_color}'>{r_val:.3f}</span></div>",
-                unsafe_allow_html=True,
-            )
-        st.markdown("")
 
         # Dual-axis timeseries
         st.markdown(
