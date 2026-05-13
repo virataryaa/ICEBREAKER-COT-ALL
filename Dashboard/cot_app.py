@@ -1544,10 +1544,6 @@ def render_recap(d, report, color, commodity="KC", is_options=False):
     if not nom_body.empty:
         ccy = "GBP" if commodity == "LCC" else "USD"
         with st.expander(f"Nominal Exposure  ·  M {ccy}", expanded=False):
-            if is_options:
-                st.warning("Options Only — nominal shown as contracts × Rollex Px × contract size. "
-                           "This is **not** delta-adjusted exposure. True options exposure requires "
-                           "delta weighting per strike/expiry and will overstate notional risk.")
             st.markdown(_recap_html(nom_summary, signed=True), unsafe_allow_html=True)
             st.markdown(_recap_html(nom_body, scroll=True), unsafe_allow_html=True)
 
