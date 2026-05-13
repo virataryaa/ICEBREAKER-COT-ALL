@@ -623,14 +623,14 @@ CIT_SPEC = {
     "Large Spec":    {"long":"Spec Long",    "short":"Spec Short",    "net":"Spec Net",    "spread":None},
     "Non-Rep":       {"long":"Non Rep Long", "short":"Non Rep Short", "net":"Non Rep Net", "spread":None},
     "Index Traders": {"long":"Index Long",   "short":"Index Short",   "net":"Index Net",   "spread":None},
-    "Combined Spec": {"long":"Combined Spec Long","short":"Combined Spec Short","net":"Combined Spec Net","spread":None},
+    "Large Spec + Index + Non-Rep": {"long":"Combined Spec Long","short":"Combined Spec Short","net":"Combined Spec Net","spread":None},
 }
 DISAGG_SPEC = {
-    "Managed Money":    {"long":"MM Long",    "short":"MM Short",    "net":"MM Net",    "spread":"MM Spread"},
-    "Other Rept":       {"long":"Other Long", "short":"Other Short", "net":"Other Net", "spread":"Other Spread"},
-    "Non-Rep":          {"long":"Non Rep Long","short":"Non Rep Short","net":"Non Rep Net","spread":None},
-    "Swap Dealers":     {"long":"Swap Long",  "short":"Swap Short",  "net":"Swap Net",  "spread":"Swap Spread"},
-    "Combined Spec":    {"long":"Combined Spec Long","short":"Combined Spec Short","net":"Combined Spec Net","spread":None},
+    "Managed Money":              {"long":"MM Long",    "short":"MM Short",    "net":"MM Net",    "spread":"MM Spread"},
+    "Other Rept":                 {"long":"Other Long", "short":"Other Short", "net":"Other Net", "spread":"Other Spread"},
+    "Non-Rep":                    {"long":"Non Rep Long","short":"Non Rep Short","net":"Non Rep Net","spread":None},
+    "Swap Dealers":               {"long":"Swap Long",  "short":"Swap Short",  "net":"Swap Net",  "spread":"Swap Spread"},
+    "MM + Other + Non-Rep + Swap":{"long":"Combined Spec Long","short":"Combined Spec Short","net":"Combined Spec Net","spread":None},
 }
 
 def render_spec(d, report, color):
