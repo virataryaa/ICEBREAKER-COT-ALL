@@ -53,9 +53,9 @@ COMM_COLORS = {
     "CT":"#7c3aed","RC":"#dc2626","LCC":"#0891b2",
 }
 COMM_NAMES = {
-    "KC":"KC — Arabica Coffee","CC":"CC — NYC Cocoa",
-    "SB":"SB — Sugar #11","CT":"CT — Cotton #2",
-    "RC":"RC — Robusta Coffee","LCC":"LCC — London Cocoa",
+    "KC":"KC  Arabica Coffee","CC":"CC  NYC Cocoa",
+    "SB":"SB  Sugar #11","CT":"CT  Cotton #2",
+    "RC":"RC  Robusta Coffee","LCC":"LCC  London Cocoa",
 }
 CONTRACT_SIZE = {"KC":37500,"CC":10,"SB":112000,"CT":50000,"RC":10,"LCC":10}
 CONTRACT_UNIT = {"KC":"lbs","CC":"MT","SB":"lbs","CT":"lbs","RC":"MT","LCC":"MT"}
