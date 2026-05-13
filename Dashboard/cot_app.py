@@ -2793,15 +2793,244 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
         )
 
 # ══════════════════════════════════════════════════════════════════════════════
+# PAIRS TAB  (KC+RC  and  CC+LCC  — always Disagg F&O)
+# ══════════════════════════════════════════════════════════════════════════════
+def render_pairs(start_date=None, end_date=None):
+    st.markdown(
+        "<div style='font-size:.75rem;color:#555;margin-bottom:14px;padding:7px 14px;"
+        "background:#f8f9fb;border-radius:6px;border:1px solid #e5e7eb'>"
+        "Always uses <b>Disaggregated F&O</b> data regardless of sidebar report selection. "
+        "Compares equivalent trader classes across both legs of each market pair.</div>",
+        unsafe_allow_html=True,
+    )
+
+    c1, c2 = st.columns([2, 3])
+    with c1:
+        pair = st.radio("Pair", ["KC + RC", "CC + LCC"], horizontal=True, key="pair_sel")
+    with c2:
+        view = st.radio("View", ["Combined Net", "Individual Legs"], horizontal=True, key="pair_view")
+
+    comm_a, comm_b = ("KC", "RC") if "KC" in pair else ("CC", "LCC")
+    clr_a = COMM_COLORS[comm_a]
+    clr_b = COMM_COLORS[comm_b]
+
+    fo   = load_disagg("F&O")
+    t0   = pd.Timestamp(start_date) if start_date else pd.Timestamp("2010-01-01")
+    t1   = pd.Timestamp(end_date)   if end_date   else pd.Timestamp.now()
+
+    def _get(comm):
+        sub = fo[(fo["Commodity"] == comm) & (fo["Crop"] == "All")].sort_values("Date").reset_index(drop=True)
+        return sub[(sub["Date"] >= t0) & (sub["Date"] <= t1)].reset_index(drop=True)
+
+    da = _get(comm_a)
+    db = _get(comm_b)
+
+    if da.empty or db.empty:
+        st.warning("Not enough data for this pair in the selected date range.")
+        return
+
+    suf_a, suf_b = f"_{comm_a}", f"_{comm_b}"
+    mg = pd.merge(da, db, on="Date", suffixes=(suf_a, suf_b), how="inner")
+    if mg.empty:
+        st.warning("No overlapping dates for this pair.")
+        return
+
+    ALL_LEGS = ["MM Net", "MM Long", "MM Short",
+                "Comm Net", "Comm Long", "Comm Short",
+                "Other Net", "Non Rep Net", "Combined Spec Net"]
+    NET_OPTS = [c for c in ALL_LEGS if f"{c}{suf_a}" in mg.columns]
+    LEG_OPTS = NET_OPTS  # same list for individual view
+
+    def _col(comm, base):
+        key = f"{base}_{comm}"
+        return mg[key] if key in mg.columns else pd.Series(np.nan, index=mg.index)
+
+    st.markdown("---")
+
+    # ── COMBINED NET ──────────────────────────────────────────────────────────
+    if view == "Combined Net":
+        defaults = [n for n in ["MM Net", "Comm Net"] if n in NET_OPTS]
+        sel_nets = st.multiselect(
+            "COT Elements", NET_OPTS, default=defaults, key="pair_nets",
+        )
+        if not sel_nets:
+            st.info("Select at least one element above.")
+            return
+
+        latest_a = da.iloc[-1]
+        latest_b = db.iloc[-1]
+
+        def _fv(row, col):
+            v = row.get(col, np.nan)
+            if pd.isna(v): return "—"
+            cls = "rpos" if v > 0 else "rneg"
+            return f"<span class='{cls}'>{v:.0f}k</span>"
+        def _fc(va, vb):
+            if pd.isna(va) or pd.isna(vb): return "—"
+            v = va + vb
+            cls = "rpos" if v > 0 else "rneg"
+            return f"<span class='{cls}'>{v:.0f}k</span>"
+
+        hdr = (f"<tr style='background:#f3f4f6'><th class='idx'>Element</th>"
+               f"<th>{COMM_NAMES[comm_a]}</th><th>{COMM_NAMES[comm_b]}</th><th>Combined</th></tr>")
+        rows_html = ""
+        for net in sel_nets:
+            va = latest_a.get(net, np.nan)
+            vb = latest_b.get(net, np.nan)
+            rows_html += (f"<tr><td class='idx'>{net}</td>"
+                          f"<td>{_fv(latest_a, net)}</td>"
+                          f"<td>{_fv(latest_b, net)}</td>"
+                          f"<td>{_fc(va, vb)}</td></tr>")
+        st.markdown(
+            f"{_RECAP_CSS}<div style='overflow-x:auto'><table class='rtbl'>"
+            f"<thead>{hdr}</thead><tbody>{rows_html}</tbody></table></div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("")
+
+        palette = ["#1d4ed8", "#dc2626", "#059669", "#7c3aed", "#d97706"]
+        fig = go.Figure()
+        for i, net in enumerate(sel_nets):
+            sa = _col(comm_a, net)
+            sb = _col(comm_b, net)
+            combined = sa.fillna(0) + sb.fillna(0)
+            clr = palette[i % len(palette)]
+            fig.add_trace(go.Scatter(
+                x=mg["Date"], y=combined, mode="lines",
+                name=f"{net} (combined)",
+                line=dict(color=clr, width=2.0),
+            ))
+            fig.add_trace(go.Scatter(
+                x=mg["Date"], y=sa, mode="lines",
+                name=f"{net} ({comm_a})",
+                line=dict(color=clr, width=1.2, dash="dot"),
+                visible="legendonly",
+            ))
+            fig.add_trace(go.Scatter(
+                x=mg["Date"], y=sb, mode="lines",
+                name=f"{net} ({comm_b})",
+                line=dict(color=clr, width=1.2, dash="dash"),
+                visible="legendonly",
+            ))
+        fig.update_layout(
+            **_BASE, height=380,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+            margin=dict(l=0, r=0, t=30, b=0), hovermode="x unified",
+            yaxis=dict(**_ax(), title=dict(text="k lots", font=dict(size=9))),
+            xaxis=dict(**_ax(x=True)),
+        )
+        st.plotly_chart(fig, use_container_width=True, key=f"pair_net_{comm_a}{comm_b}")
+
+    # ── INDIVIDUAL LEGS ───────────────────────────────────────────────────────
+    else:
+        sel_leg = st.selectbox("COT Element", LEG_OPTS, key="pair_leg")
+
+        sa = _col(comm_a, sel_leg)
+        sb = _col(comm_b, sel_leg)
+        va = sa.iloc[-1] if len(sa) else np.nan
+        vb = sb.iloc[-1] if len(sb) else np.nan
+
+        def _fv2(v):
+            if pd.isna(v): return "—"
+            cls = "rpos" if v > 0 else "rneg"
+            return f"<span class='{cls}'>{v:.0f}k</span>"
+
+        sa_chg = sa.diff().dropna()
+        sb_chg = sb.diff().dropna()
+        shared = sa_chg.index.intersection(sb_chg.index)
+        r_val  = None
+        if len(shared) > 5:
+            r_val = float(np.corrcoef(sa_chg.loc[shared].values, sb_chg.loc[shared].values)[0, 1])
+
+        hdr = (f"<tr style='background:#f3f4f6'><th class='idx'>Metric</th>"
+               f"<th>{COMM_NAMES[comm_a]}</th><th>{COMM_NAMES[comm_b]}</th></tr>")
+        rows_html = (f"<tr><td class='idx'>{sel_leg} — latest</td>"
+                     f"<td>{_fv2(va)}</td><td>{_fv2(vb)}</td></tr>")
+        st.markdown(
+            f"{_RECAP_CSS}<div style='overflow-x:auto'><table class='rtbl'>"
+            f"<thead>{hdr}</thead><tbody>{rows_html}</tbody></table></div>",
+            unsafe_allow_html=True,
+        )
+
+        if r_val is not None:
+            r_color = "#16a34a" if r_val > 0.4 else ("#dc2626" if r_val < -0.4 else "#888")
+            st.markdown(
+                f"<div style='margin:8px 0 14px;padding:8px 14px;background:rgba(0,0,0,.03);"
+                f"border-radius:7px;display:inline-block;font-size:.82rem'>"
+                f"Pearson r  ({comm_a} vs {comm_b}  ·  {sel_leg}  weekly change) : "
+                f"<span style='font-weight:700;font-size:.95rem;color:{r_color}'>{r_val:.3f}</span></div>",
+                unsafe_allow_html=True,
+            )
+        st.markdown("")
+
+        # Dual-axis timeseries
+        fig2 = make_subplots(specs=[[{"secondary_y": True}]])
+        fig2.add_trace(go.Scatter(
+            x=mg["Date"], y=sa, mode="lines",
+            name=f"{COMM_NAMES[comm_a]}",
+            line=dict(color=clr_a, width=1.9),
+        ), secondary_y=False)
+        fig2.add_trace(go.Scatter(
+            x=mg["Date"], y=sb, mode="lines",
+            name=f"{COMM_NAMES[comm_b]}",
+            line=dict(color=clr_b, width=1.9),
+        ), secondary_y=True)
+        fig2.update_layout(
+            **_BASE, height=360,
+            title=dict(text=f"{sel_leg}  —  {COMM_NAMES[comm_a]}  vs  {COMM_NAMES[comm_b]}",
+                       font=dict(size=11, color="#374151")),
+            legend=dict(orientation="h", yanchor="bottom", y=1.06, xanchor="left", x=0),
+            margin=dict(l=0, r=0, t=44, b=0), hovermode="x unified",
+            xaxis=dict(**_ax(x=True)),
+        )
+        fig2.update_yaxes(**{**_ax(), "title_text": f"{comm_a}  k lots"}, secondary_y=False)
+        fig2.update_yaxes(**{**_ax(), "title_text": f"{comm_b}  k lots", "showgrid": False}, secondary_y=True)
+        st.plotly_chart(fig2, use_container_width=True, key=f"pair_leg_{comm_a}{comm_b}")
+
+        # Correlation scatter
+        if len(shared) > 5:
+            xa = sa_chg.loc[shared].values
+            xb = sb_chg.loc[shared].values
+            dates_s = mg.loc[shared, "Date"] if "Date" in mg.columns else pd.Series(shared)
+            fig3 = go.Figure()
+            fig3.add_trace(go.Scatter(
+                x=xa, y=xb, mode="markers",
+                marker=dict(
+                    color=list(range(len(xa))), colorscale="Blues",
+                    size=6, opacity=0.75, showscale=False,
+                ),
+                text=[d.strftime("%d-%b-%y") if hasattr(d, "strftime") else str(d) for d in dates_s],
+                hovertemplate=(f"{comm_a} delta: %{{x:.1f}}k<br>"
+                               f"{comm_b} delta: %{{y:.1f}}k<br>%{{text}}<extra></extra>"),
+                showlegend=False,
+            ))
+            fig3.add_trace(go.Scatter(
+                x=[xa[-1]], y=[xb[-1]], mode="markers",
+                marker=dict(color="#f97316", size=10, symbol="star"),
+                showlegend=False,
+            ))
+            fig3.update_layout(
+                **_BASE, height=340,
+                title=dict(text=f"{comm_a} vs {comm_b}  —  {sel_leg}  weekly change",
+                           font=dict(size=11, color="#374151")),
+                margin=dict(l=48, r=16, t=44, b=48),
+                xaxis=dict(**_ax(), title=dict(text=f"{comm_a} weekly change (k lots)", font=dict(size=9))),
+                yaxis=dict(**_ax(), title=dict(text=f"{comm_b} weekly change (k lots)", font=dict(size=9))),
+                showlegend=False,
+            )
+            st.plotly_chart(fig3, use_container_width=True, key=f"pair_scatter_{comm_a}{comm_b}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # TABS
 # ══════════════════════════════════════════════════════════════════════════════
 # Options Only: hide Spreading (options spreads ≠ calendar spreads) and CIT vs Disagg (CIT is fut-only)
 if is_options:
     TAB_LABELS = ["Recap","Recap (Charts)","Spec","Commercial","Old / New",
-                  "Concentration","Scatter Plot","Spec VaR"]
+                  "Concentration","Scatter Plot","Spec VaR","Pairs"]
 else:
     TAB_LABELS = ["Recap","Recap (Charts)","Spec","Commercial","Spreading","Old / New",
-                  "Concentration","Scatter Plot","CIT vs Disagg","Spec VaR"]
+                  "Concentration","Scatter Plot","CIT vs Disagg","Spec VaR","Pairs"]
 
 tabs = st.tabs(TAB_LABELS)
 
@@ -2816,6 +3045,7 @@ if is_options:
     with tabs[5]:  render_concentration(df, color)
     with tabs[6]:  render_analysis(df, report, color)
     with tabs[7]:  render_spec_var(commodity, df, report, color, start_date, end_date)
+    with tabs[8]:  render_pairs(start_date, end_date)
 else:
     with tabs[0]:  render_recap(df, report, color, commodity)
     with tabs[1]:  render_recap_charts(df, report, color, commodity)
@@ -2831,3 +3061,4 @@ else:
     with tabs[7]:  render_analysis(df, report, color)
     with tabs[8]:  render_comparison(commodity, start_date, end_date, color)
     with tabs[9]:  render_spec_var(commodity, df, report, color, start_date, end_date)
+    with tabs[10]: render_pairs(start_date, end_date)
