@@ -996,7 +996,7 @@ def render_old_new(d_crops, color):
     if other_check.empty:
         st.info("Old/New crop split not available for this commodity."); return
 
-    with st.expander("Data table — Old Crop / New Crop", expanded=True):
+    with st.expander("Data table  ·  Old Crop / New Crop", expanded=False):
         common_dates = old.index.union(other.index).sort_values()[::-1][:30]
         common_dates_ext = old.index.union(other.index).sort_values()[::-1][:31]
 
@@ -1032,7 +1032,7 @@ def render_old_new(d_crops, color):
         all_groups = {g for g, _ in chg_df.columns}
         st.markdown(_recap_html(chg_df, signed_groups=all_groups, scroll=True), unsafe_allow_html=True)
 
-    with st.expander("Seasonality — Old vs New Crop  (adjustable start)", expanded=False):
+    with st.expander("Seasonality  ·  Old vs New Crop (adjustable start)", expanded=False):
         wide_full = _on_seasonal_wide(d_crops)
         if not wide_full.empty:
             sm = st.selectbox("Crop year starts in", list(range(1,13)),
@@ -1087,7 +1087,7 @@ def render_old_new(d_crops, color):
             with oi1: st.plotly_chart(_sc("OI Old %", "OI % (Old)", "%"), width='stretch')
 
     # ── OI split ──────────────────────────────────────────────────────────────
-    with st.expander("Open Interest — Old vs New Crop", expanded=False):
+    with st.expander("Open Interest  ·  Old vs New Crop", expanded=False):
         dates = old.index.union(other.index).sort_values()
         fig_oi = go.Figure([
             go.Bar(x=dates, y=old.reindex(dates)["Total OI"]/1000, name="Old Crop",
@@ -1106,7 +1106,7 @@ def render_old_new(d_crops, color):
         st.plotly_chart(fig_oi, width='stretch')
 
     # ── Net positions ─────────────────────────────────────────────────────────
-    with st.expander("Net Positions — MM & Commercial", expanded=False):
+    with st.expander("Net Positions  ·  MM & Commercial", expanded=False):
         c1, c2 = st.columns(2)
         for col_c, (col, title) in zip([c1,c2],[("MM Net","Managed Money Net"),("Comm Net","Commercial (Prod) Net")]):
             with col_c:
@@ -1126,7 +1126,7 @@ def render_old_new(d_crops, color):
                 st.plotly_chart(fig, width='stretch')
 
     # ── Gross legs ────────────────────────────────────────────────────────────
-    with st.expander("Gross Legs — Old vs New Crop", expanded=False):
+    with st.expander("Gross Legs  ·  Old vs New Crop", expanded=False):
         gross_legs = [(c,t) for c,t in [
             ("MM Long","MM Long"),("MM Short","MM Short"),
             ("Producer Long","Comm Long"),("Producer Short","Comm Short"),
