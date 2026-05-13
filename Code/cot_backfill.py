@@ -36,6 +36,7 @@ Usage:
 """
 
 import argparse
+import sys
 import icepython as ice
 import pandas as pd
 from pathlib import Path
@@ -223,7 +224,7 @@ def fetch_ts(symbol, fields, start, end):
         data = ice.get_timeseries(symbol, fields, granularity="D",
                                   start_date=start, end_date=end)
         rows = list(data)
-        if not rows or "Error" in str(rows[0][0]):
+        if not rows or (rows[0] and "Error" in str(rows[0][0])):
             return None
         df = pd.DataFrame(rows[1:], columns=["Date"] + fields)
         df["Date"] = pd.to_datetime(df["Date"])
@@ -255,7 +256,7 @@ def fetch_px(symbol, start, end):
         data = ice.get_timeseries(symbol, ["Settle"], granularity="D",
                                   start_date=start, end_date=end)
         rows = list(data)
-        if not rows or "Error" in str(rows[0][0]):
+        if not rows or (rows[0] and "Error" in str(rows[0][0])):
             return pd.Series(dtype=float)
         df = pd.DataFrame(rows[1:], columns=["Date", "Px"])
         df["Date"] = pd.to_datetime(df["Date"])
@@ -306,6 +307,8 @@ def build_cit(comm, cfg, start, end):
         print("no data"); return None
     print(f"{len(df)} rows")
 
+    if len(df.columns) != len(CIT_ALL_CLEAN):
+        print(f"  [{comm}] CIT column count mismatch: got {len(df.columns)}, expected {len(CIT_ALL_CLEAN)}"); return None
     df.columns = CIT_ALL_CLEAN
     df["Non Rep Long"]  = df["Total OI"] - df["Comm Long"]  - df["Spec Long"]  - df["Spec Spread"] - df["Index Long"]
     df["Non Rep Short"] = df["Total OI"] - df["Comm Short"] - df["Spec Short"] - df["Spec Spread"] - df["Index Short"]
@@ -336,6 +339,8 @@ def _fetch_disagg_slice(symbol, crop, start, end):
     df = fn(symbol, all_fields, start, end)
     if df is None or df.empty:
         return None
+    if len(df.columns) != len(DISAGG_ALL_CLEAN):
+        print(f"  column count mismatch ({crop}): got {len(df.columns)}, expected {len(DISAGG_ALL_CLEAN)}"); return None
     df.columns = DISAGG_ALL_CLEAN
     df["Crop"] = crop
     return df
@@ -380,93 +385,95 @@ def build_disagg(comm, cfg, version, start, end):
 
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
-parser = argparse.ArgumentParser()
-parser.add_argument("--full",      action="store_true")
-parser.add_argument("--cit",       action="store_true")
-parser.add_argument("--disagg",    action="store_true")
-parser.add_argument("--commodity", type=str, default=None)
-parser.add_argument("--start",     type=str, default=None)
-args = parser.parse_args()
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--full",      action="store_true")
+    parser.add_argument("--cit",       action="store_true")
+    parser.add_argument("--disagg",    action="store_true")
+    parser.add_argument("--commodity", type=str, default=None)
+    parser.add_argument("--start",     type=str, default=None)
+    args = parser.parse_args()
 
-run_cit    = not args.disagg
-run_disagg = not args.cit
-END_DATE   = datetime.today().strftime("%Y-%m-%d")
+    run_cit    = not args.disagg
+    run_disagg = not args.cit
+    END_DATE   = datetime.today().strftime("%Y-%m-%d")
 
-if args.commodity:
-    comm = args.commodity.upper()
-    if comm not in CIT_COMMODITIES and comm not in DISAGG_COMMODITIES:
-        print(f"Unknown commodity: {comm}"); exit(1)
-    CIT_COMMODITIES    = {comm: CIT_COMMODITIES[comm]}    if comm in CIT_COMMODITIES    else {}
-    DISAGG_COMMODITIES = {comm: DISAGG_COMMODITIES[comm]} if comm in DISAGG_COMMODITIES else {}
-    if not CIT_COMMODITIES:    run_cit    = False
-    if not DISAGG_COMMODITIES: run_disagg = False
-
-
-def _get_start(path, key_cols):
-    if args.start:
-        return args.start, f"FULL from {args.start} (--start override)"
-    if args.full or not path.exists():
-        default = CIT_START if "cit" in path.name else DISAGG_START
-        return default, f"FULL from {default}"
-    return incremental_start(path), f"INCREMENTAL from {incremental_start(path)}"
+    if args.commodity:
+        comm = args.commodity.upper()
+        if comm not in CIT_COMMODITIES and comm not in DISAGG_COMMODITIES:
+            print(f"Unknown commodity: {comm}"); sys.exit(1)
+        CIT_COMMODITIES    = {comm: CIT_COMMODITIES[comm]}    if comm in CIT_COMMODITIES    else {}
+        DISAGG_COMMODITIES = {comm: DISAGG_COMMODITIES[comm]} if comm in DISAGG_COMMODITIES else {}
+        if not CIT_COMMODITIES:    run_cit    = False
+        if not DISAGG_COMMODITIES: run_disagg = False
 
 
-# ── CIT ───────────────────────────────────────────────────────────────────────
-if run_cit:
-    fetch_start, mode = _get_start(CIT_PATH, ["Commodity"])
-    print(f"\nCIT | {mode}\n")
+    def _get_start(path, key_cols):
+        if args.start:
+            return args.start, f"FULL from {args.start} (--start override)"
+        if args.full or not path.exists():
+            default = CIT_START if "cit" in path.name else DISAGG_START
+            return default, f"FULL from {default}"
+        s = incremental_start(path)
+        return s, f"INCREMENTAL from {s}"
 
-    all_cit = []
-    for comm, cfg in CIT_COMMODITIES.items():
-        df = build_cit(comm, cfg, fetch_start, END_DATE)
-        if df is not None:
-            all_cit.append(df)
 
-    if all_cit:
-        final = upsert(CIT_PATH, pd.concat(all_cit, ignore_index=True),
-                       fetch_start, ["Commodity"])
-        print(f"\nCIT saved -> {CIT_PATH}  |  {len(final)} rows")
-        print(final.groupby("Commodity").agg(
-            rows=("Date", "count"), from_=("Date", "min"), to=("Date", "max")).to_string())
-    else:
-        print("CIT: no data.")
+    # ── CIT ───────────────────────────────────────────────────────────────────────
+    if run_cit:
+        fetch_start, mode = _get_start(CIT_PATH, ["Commodity"])
+        print(f"\nCIT | {mode}\n")
 
-# ── Disagg FutOpt ─────────────────────────────────────────────────────────────
-if run_disagg:
-    fetch_start, mode = _get_start(DISAGG_FUTOPT_PATH, ["Commodity", "Crop"])
-    print(f"\nDISAGG FutOpt | {mode}\n")
+        all_cit = []
+        for comm, cfg in CIT_COMMODITIES.items():
+            df = build_cit(comm, cfg, fetch_start, END_DATE)
+            if df is not None:
+                all_cit.append(df)
 
-    all_fo = []
-    for comm, cfg in DISAGG_COMMODITIES.items():
-        df = build_disagg(comm, cfg, "FutOpt", fetch_start, END_DATE)
-        if df is not None:
-            all_fo.append(df)
+        if all_cit:
+            final = upsert(CIT_PATH, pd.concat(all_cit, ignore_index=True),
+                           fetch_start, ["Commodity"])
+            print(f"\nCIT saved -> {CIT_PATH}  |  {len(final)} rows")
+            print(final.groupby("Commodity").agg(
+                rows=("Date", "count"), from_=("Date", "min"), to=("Date", "max")).to_string())
+        else:
+            print("CIT: no data.")
 
-    if all_fo:
-        final = upsert(DISAGG_FUTOPT_PATH, pd.concat(all_fo, ignore_index=True),
-                       fetch_start, ["Commodity", "Crop"])
-        print(f"\nDisagg FutOpt saved -> {DISAGG_FUTOPT_PATH}  |  {len(final)} rows")
-        print(final.groupby(["Commodity", "Crop"]).agg(
-            rows=("Date", "count"), from_=("Date", "min"), to=("Date", "max")).to_string())
-    else:
-        print("Disagg FutOpt: no data.")
+    # ── Disagg FutOpt ─────────────────────────────────────────────────────────────
+    if run_disagg:
+        fetch_start, mode = _get_start(DISAGG_FUTOPT_PATH, ["Commodity", "Crop"])
+        print(f"\nDISAGG FutOpt | {mode}\n")
 
-# ── Disagg Fut ────────────────────────────────────────────────────────────────
-if run_disagg:
-    fetch_start, mode = _get_start(DISAGG_FUT_PATH, ["Commodity", "Crop"])
-    print(f"\nDISAGG Fut | {mode}\n")
+        all_fo = []
+        for comm, cfg in DISAGG_COMMODITIES.items():
+            df = build_disagg(comm, cfg, "FutOpt", fetch_start, END_DATE)
+            if df is not None:
+                all_fo.append(df)
 
-    all_fut = []
-    for comm, cfg in DISAGG_COMMODITIES.items():
-        df = build_disagg(comm, cfg, "Fut", fetch_start, END_DATE)
-        if df is not None:
-            all_fut.append(df)
+        if all_fo:
+            final = upsert(DISAGG_FUTOPT_PATH, pd.concat(all_fo, ignore_index=True),
+                           fetch_start, ["Commodity", "Crop"])
+            print(f"\nDisagg FutOpt saved -> {DISAGG_FUTOPT_PATH}  |  {len(final)} rows")
+            print(final.groupby(["Commodity", "Crop"]).agg(
+                rows=("Date", "count"), from_=("Date", "min"), to=("Date", "max")).to_string())
+        else:
+            print("Disagg FutOpt: no data.")
 
-    if all_fut:
-        final = upsert(DISAGG_FUT_PATH, pd.concat(all_fut, ignore_index=True),
-                       fetch_start, ["Commodity", "Crop"])
-        print(f"\nDisagg Fut saved -> {DISAGG_FUT_PATH}  |  {len(final)} rows")
-        print(final.groupby(["Commodity", "Crop"]).agg(
-            rows=("Date", "count"), from_=("Date", "min"), to=("Date", "max")).to_string())
-    else:
-        print("Disagg Fut: no data.")
+    # ── Disagg Fut ────────────────────────────────────────────────────────────────
+    if run_disagg:
+        fetch_start, mode = _get_start(DISAGG_FUT_PATH, ["Commodity", "Crop"])
+        print(f"\nDISAGG Fut | {mode}\n")
+
+        all_fut = []
+        for comm, cfg in DISAGG_COMMODITIES.items():
+            df = build_disagg(comm, cfg, "Fut", fetch_start, END_DATE)
+            if df is not None:
+                all_fut.append(df)
+
+        if all_fut:
+            final = upsert(DISAGG_FUT_PATH, pd.concat(all_fut, ignore_index=True),
+                           fetch_start, ["Commodity", "Crop"])
+            print(f"\nDisagg Fut saved -> {DISAGG_FUT_PATH}  |  {len(final)} rows")
+            print(final.groupby(["Commodity", "Crop"]).agg(
+                rows=("Date", "count"), from_=("Date", "min"), to=("Date", "max")).to_string())
+        else:
+            print("Disagg Fut: no data.")

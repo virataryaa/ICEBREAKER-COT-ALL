@@ -53,9 +53,9 @@ COMM_COLORS = {
     "CT":"#7c3aed","RC":"#dc2626","LCC":"#0891b2",
 }
 COMM_NAMES = {
-    "KC":"KC  Arabica Coffee","CC":"CC  NYC Cocoa",
-    "SB":"SB  Sugar #11","CT":"CT  Cotton #2",
-    "RC":"RC  Robusta Coffee","LCC":"LCC  London Cocoa",
+    "KC":"KC : Arabica Coffee","CC":"CC : NYC Cocoa",
+    "SB":"SB : Sugar #11","CT":"CT : Cotton #2",
+    "RC":"RC : Robusta Coffee","LCC":"LCC : London Cocoa",
 }
 CONTRACT_SIZE = {"KC":37500,"CC":10,"SB":112000,"CT":50000,"RC":10,"LCC":10}
 CONTRACT_UNIT = {"KC":"lbs","CC":"MT","SB":"lbs","CT":"lbs","RC":"MT","LCC":"MT"}
@@ -2183,10 +2183,6 @@ with st.sidebar:
     end_date   = st.date_input("To",   value=_max_date,
                                min_value=datetime.date(2010,1,1), max_value=_max_date, key="dt_to")
 
-    st.markdown("---")
-    st.markdown("<div style='font-size:.68rem;color:#bbb;margin-top:4px'>"
-                "Data: ICE Connect · CFTC<br>Updated Fridays</div>",
-                unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
