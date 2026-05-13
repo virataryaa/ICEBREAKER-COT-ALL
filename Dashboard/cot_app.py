@@ -708,8 +708,8 @@ def render_spec(d, report, color):
             hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Short: %{{y:.1f}}{suffix}<extra></extra>")})
     if nc in d.columns:
         traces.append({"trace": go.Scatter(x=d["Date"], y=_get_y(d, nc, unit), name="Net",
-            fill="tozeroy", fillcolor=f"rgba({r},{g},{b},0.09)",
-            line=dict(color=color, width=2.2),
+            fill="tozeroy", fillcolor="rgba(26,86,219,0.09)",
+            line=dict(color=C_NET, width=2.2),
             hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Net: %{{y:.1f}}{suffix}<extra></extra>")})
     if spc and spc in d.columns:
         traces.append({"trace": go.Scatter(x=d["Date"], y=_get_y(d, spc, unit), name="Spread",
@@ -722,7 +722,7 @@ def render_spec(d, report, color):
                     width='stretch')
 
     with st.expander("Seasonality", expanded=False):
-        seas_items = [(lc, C_LONG, "Long"), (sc, C_SHORT, "Short"), (nc, color, "Net")]
+        seas_items = [(lc, C_LONG, "Long"), (sc, C_SHORT, "Short"), (nc, C_NET, "Net")]
         avail_s = [(col, clr, lbl) for col, clr, lbl in seas_items if col in d.columns]
         scols = st.columns(len(avail_s))
         for ch, (col, clr, lbl) in zip(scols, avail_s):
@@ -769,8 +769,8 @@ def render_commercial(d, report, color):
                 hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{name}: %{{y:.1f}}{suffix}<extra></extra>")})
     if nc in d.columns:
         traces.append({"trace": go.Scatter(x=d["Date"], y=_get_y(d, nc, unit), name="Net",
-            fill="tozeroy", fillcolor=f"rgba({r},{g},{b},0.07)",
-            line=dict(color=color, width=2.2),
+            fill="tozeroy", fillcolor="rgba(26,86,219,0.07)",
+            line=dict(color=C_NET, width=2.2),
             hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Net: %{{y:.1f}}{suffix}<extra></extra>")})
     st.plotly_chart(timeseries(d, traces, f"{lbl}  ·  {ylabel}", ylabel), width='stretch')
 
@@ -779,7 +779,7 @@ def render_commercial(d, report, color):
                     width='stretch')
 
     with st.expander("Seasonality", expanded=False):
-        seas = [(lc, C_LONG, "Long"), (sc, C_SHORT, "Short"), (nc, color, "Net")]
+        seas = [(lc, C_LONG, "Long"), (sc, C_SHORT, "Short"), (nc, C_NET, "Net")]
         avail_s = [(col, clr, name) for col, clr, name in seas if col in d.columns]
         scols = st.columns(len(avail_s))
         for ch, (col, clr, name) in zip(scols, avail_s):
@@ -2907,20 +2907,17 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
 # ══════════════════════════════════════════════════════════════════════════════
 # PAIRS TAB  (KC+RC  and  CC+LCC  — always Disagg F&O)
 # ══════════════════════════════════════════════════════════════════════════════
-def render_pairs(start_date=None, end_date=None):
+def render_pairs(start_date=None, end_date=None, commodity=None):
+    pair = "KC + RC" if commodity in {"KC", "RC"} else "CC + LCC"
+
     st.markdown(
-        "<div style='font-size:.75rem;color:#555;margin-bottom:14px;padding:7px 14px;"
-        "background:#f8f9fb;border-radius:6px;border:1px solid #e5e7eb'>"
-        "Always uses <b>Disaggregated F&O</b> data regardless of sidebar report selection. "
-        "Compares equivalent trader classes across both legs of each market pair.</div>",
+        f"<div style='font-size:.75rem;color:#555;margin-bottom:14px;padding:7px 14px;"
+        f"background:#f8f9fb;border-radius:6px;border:1px solid #e5e7eb'>"
+        f"Showing pair <b>{pair}</b> · Always uses <b>Disaggregated F&O</b> data regardless of sidebar report selection.</div>",
         unsafe_allow_html=True,
     )
 
-    c1, c2 = st.columns([2, 3])
-    with c1:
-        pair = st.radio("Pair", ["KC + RC", "CC + LCC"], horizontal=True, key="pair_sel")
-    with c2:
-        view = st.radio("View", ["Combined Net", "Individual Legs"], horizontal=True, key="pair_view")
+    view = st.radio("View", ["Combined Net", "Individual Legs"], horizontal=True, key="pair_view")
 
     comm_a, comm_b = ("KC", "RC") if "KC" in pair else ("CC", "LCC")
     clr_a = COMM_COLORS[comm_a]
@@ -3078,15 +3075,21 @@ def render_pairs(start_date=None, end_date=None):
 # TABS
 # ══════════════════════════════════════════════════════════════════════════════
 # Options Only: hide Spreading (options spreads ≠ calendar spreads) and CIT vs Disagg (CIT is fut-only)
+# Pairs tab: only shown for KC/RC (coffee) and CC/LCC (cocoa) — hidden for CT/SB
+show_pairs = commodity in {"KC", "RC", "CC", "LCC"}
+
 if is_options:
     TAB_LABELS = ["Recap","Recap (Charts)","Spec","Commercial","Old / New",
-                  "Concentration","Scatter Plot","Spec VaR","Pairs"]
+                  "Concentration","Scatter Plot","Spec VaR"]
+    if show_pairs: TAB_LABELS.append("Pairs")
 elif report == "CIT":
     TAB_LABELS = ["Recap","Recap (Charts)","Spec","Commercial",
-                  "Scatter Plot","CIT vs Disagg","Spec VaR","Pairs"]
+                  "Scatter Plot","CIT vs Disagg","Spec VaR"]
+    if show_pairs: TAB_LABELS.append("Pairs")
 else:
     TAB_LABELS = ["Recap","Recap (Charts)","Spec","Commercial","Spreading","Old / New",
-                  "Concentration","Scatter Plot","CIT vs Disagg","Spec VaR","Pairs"]
+                  "Concentration","Scatter Plot","CIT vs Disagg","Spec VaR"]
+    if show_pairs: TAB_LABELS.append("Pairs")
 
 tabs = st.tabs(TAB_LABELS)
 
@@ -3101,7 +3104,8 @@ if is_options:
     with tabs[5]:  render_concentration(df, color)
     with tabs[6]:  render_analysis(df, report, color)
     with tabs[7]:  render_spec_var(commodity, df, report, color, start_date, end_date)
-    with tabs[8]:  render_pairs(start_date, end_date)
+    if show_pairs:
+        with tabs[8]:  render_pairs(start_date, end_date, commodity)
 elif report == "CIT":
     with tabs[0]:  render_recap(df, report, color, commodity)
     with tabs[1]:  render_recap_charts(df, report, color, commodity)
@@ -3110,7 +3114,8 @@ elif report == "CIT":
     with tabs[4]:  render_analysis(df, report, color)
     with tabs[5]:  render_comparison(commodity, start_date, end_date, color)
     with tabs[6]:  render_spec_var(commodity, df, report, color, start_date, end_date)
-    with tabs[7]:  render_pairs(start_date, end_date)
+    if show_pairs:
+        with tabs[7]:  render_pairs(start_date, end_date, commodity)
 else:
     with tabs[0]:  render_recap(df, report, color, commodity)
     with tabs[1]:  render_recap_charts(df, report, color, commodity)
@@ -3124,4 +3129,5 @@ else:
     with tabs[7]:  render_analysis(df, report, color)
     with tabs[8]:  render_comparison(commodity, start_date, end_date, color)
     with tabs[9]:  render_spec_var(commodity, df, report, color, start_date, end_date)
-    with tabs[10]: render_pairs(start_date, end_date)
+    if show_pairs:
+        with tabs[10]: render_pairs(start_date, end_date, commodity)
