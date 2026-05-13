@@ -255,9 +255,12 @@ def _build_var_df(commodity: str) -> pd.DataFrame:
     rx = rx.sort_values("Date").reset_index(drop=True)
     for w in [20, 60, 120]:
         rx[f"vol_{w}"] = rx["rollex_ret"].rolling(w, min_periods=max(5, w // 4)).std()
-    # Use roll-adjusted price as the level — avoids discrete jumps at contract rolls
-    # that would otherwise appear as artificial VaR spikes in the timeseries.
-    rx["settlement"] = rx["rollex_px"]
+    fs = load_front_settlement(commodity)
+    if not fs.empty:
+        rx = pd.merge_asof(rx.sort_values("Date"), fs.sort_values("Date"),
+                           on="Date", direction="backward")
+    else:
+        rx["settlement"] = np.nan
     return rx.reset_index(drop=True)
 
 
