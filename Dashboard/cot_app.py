@@ -2524,11 +2524,21 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
     var_df = _build_var_df(commodity)
     lot    = VAR_LOT_USD.get(commodity, 10)
 
-    # colour palette for cross-commodity (KC/RC = blue family, CC/LCC = red family)
+    # colour palette for cross-commodity (KC/RC = blue family, CC/LCC = red/orange family)
     _VAR_COLORS = {
-        "KC": "#1a56db", "RC": "#60a5fa",
-        "CC": "#991b1b", "LCC":"#f87171",
+        "KC": "#1d4ed8", "RC": "#38bdf8",
+        "CC": "#b91c1c", "LCC":"#fb923c",
         "SB": "#059669", "CT": "#7c3aed",
+    }
+    _VAR_DASH = {
+        "KC": "solid",   "RC": "dash",
+        "CC": "solid",   "LCC":"dash",
+        "SB": "solid",   "CT": "solid",
+    }
+    _VAR_WIDTH = {
+        "KC": 2.0, "RC": 1.6,
+        "CC": 2.0, "LCC":1.6,
+        "SB": 1.6, "CT": 1.6,
     }
 
     # ── derive MM+Other columns ───────────────────────────────────────────────
@@ -2779,10 +2789,16 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
                 if ts is None:
                     continue
                 snaps.append(snap)
+                ts = ts.sort_values("Date").copy()
+                ts["NetVaR_s"] = ts["NetVaR"].rolling(4, min_periods=1).mean()
                 fig_x.add_trace(go.Scatter(
-                    x=ts["Date"], y=ts["NetVaR"],
+                    x=ts["Date"], y=ts["NetVaR_s"],
                     mode="lines", name=COMM_NAMES[comm],
-                    line=dict(color=_VAR_COLORS.get(comm, "#888"), width=1.5),
+                    line=dict(
+                        color=_VAR_COLORS.get(comm, "#888"),
+                        width=_VAR_WIDTH.get(comm, 1.5),
+                        dash=_VAR_DASH.get(comm, "solid"),
+                    ),
                 ))
             if snaps:
                 snaps.sort(key=lambda x: abs(x["net_var"]) if pd.notna(x["net_var"]) else 0, reverse=True)
