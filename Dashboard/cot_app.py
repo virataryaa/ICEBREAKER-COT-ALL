@@ -996,34 +996,42 @@ def render_old_new(d_crops, color):
     if other_check.empty:
         st.info("Old/New crop split not available for this commodity."); return
 
-    def _v(df, col):
-        try: return float(df[col].iloc[-1]) if not df.empty and col in df.columns else np.nan
-        except: return np.nan
-    def _fmt(v): return "—" if np.isnan(v) else f"{v/1000:.1f}k"
-    def _pct(a, b):
-        t = a + b; return f"{a/t*100:.0f}% / {b/t*100:.0f}%" if t else "—"
+    with st.expander("Data table — Old Crop / New Crop", expanded=True):
+        common_dates = old.index.union(other.index).sort_values()[::-1][:30]
+        common_dates_ext = old.index.union(other.index).sort_values()[::-1][:31]
 
-    oi_old = _v(old,"Total OI"); oi_oth = _v(other,"Total OI")
-    r,g,b  = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
-    html = "<div style='display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px'>"
-    for lbl, val in [
-        ("OI Old / New", _pct(oi_old, oi_oth)),
-        ("OI Old",       _fmt(oi_old)),
-        ("OI New",       _fmt(oi_oth)),
-        ("MM Net Old",   _fmt(_v(old,"MM Net"))),
-        ("MM Net New",   _fmt(_v(other,"MM Net"))),
-        ("Comm Net Old", _fmt(_v(old,"Comm Net"))),
-        ("Comm Net New", _fmt(_v(other,"Comm Net"))),
-        ("Rollex Px",    f"{_v(alla,'Px'):.2f}" if not np.isnan(_v(alla,"Px")) else "—"),
-    ]:
-        html += (f"<div style='background:rgba({r},{g},{b},0.06);border:1px solid rgba({r},{g},{b},0.15);"
-                 f"border-radius:10px;padding:7px 15px;min-width:105px;display:flex;flex-direction:column'>"
-                 f"<span style='font-size:.56rem;color:#999;text-transform:uppercase;"
-                 f"letter-spacing:.1em;margin-bottom:2px'>{lbl}</span>"
-                 f"<span style='font-size:.92rem;font-weight:700;color:{color}'>{val}</span></div>")
-    st.markdown(html + "</div>", unsafe_allow_html=True)
+        def _get_s(df, col, dates):
+            return (df.reindex(dates)[col] / 1000) if col in df.columns else pd.Series(np.nan, index=dates)
 
-    # ── Crop year seasonality ─────────────────────────────────────────────────
+        def _build_tbl(dates):
+            data = {}
+            for src, lbl in [("MM Net","MM Net Old"),("Comm Net","Comm Net Old")]:
+                data[("Net · k lots", lbl)] = _get_s(old, src, dates).values
+            for src, lbl in [("MM Net","MM Net New"),("Comm Net","Comm Net New")]:
+                data[("Net · k lots", lbl)] = _get_s(other, src, dates).values
+            for src, lbl in [("MM Long","Old"),("MM Short","Old"),("Producer Long","Old"),("Producer Short","Old")]:
+                data[(src.replace("Producer","Prod"), lbl)] = _get_s(old, src, dates).values
+            for src, lbl in [("MM Long","New"),("MM Short","New"),("Producer Long","New"),("Producer Short","New")]:
+                data[(src.replace("Producer","Prod"), lbl)] = _get_s(other, src, dates).values
+            data[("OI · k lots", "Old")] = _get_s(old, "Total OI", dates).values
+            data[("OI · k lots", "New")] = _get_s(other, "Total OI", dates).values
+            return pd.DataFrame(data, index=dates)
+
+        tbl_df = _build_tbl(common_dates)
+        tbl_df.index = pd.to_datetime(tbl_df.index).strftime("%d %b '%y")
+        tbl_df.index.name = None
+        st.markdown(_recap_html(tbl_df, scroll=True), unsafe_allow_html=True)
+
+        tbl_ext = _build_tbl(common_dates_ext)
+        chg_df = tbl_ext.diff(-1).iloc[:len(common_dates)]
+        chg_df.index = pd.to_datetime(common_dates).strftime("%d %b '%y")
+        chg_df.index.name = None
+        st.markdown(
+            f"<p style='font-size:.72rem;color:{GRAY};margin:8px 0 2px'>Weekly change  ·  k lots</p>",
+            unsafe_allow_html=True)
+        all_groups = {g for g, _ in chg_df.columns}
+        st.markdown(_recap_html(chg_df, signed_groups=all_groups, scroll=True), unsafe_allow_html=True)
+
     with st.expander("Seasonality — Old vs New Crop  (adjustable start)", expanded=False):
         wide_full = _on_seasonal_wide(d_crops)
         if not wide_full.empty:
@@ -1157,45 +1165,7 @@ def render_old_new(d_crops, color):
                     yaxis=dict(**_ax(),title_text="k lots",title_font_size=10))
                 st.plotly_chart(fig2, width='stretch')
 
-    # ── Data table ────────────────────────────────────────────────────────────
-    with st.expander("Data table — Old Crop / New Crop", expanded=False):
-        common_dates = old.index.union(other.index).sort_values()[::-1][:30]
-        # need one extra row older than window to compute weekly change for the oldest visible row
-        common_dates_ext = old.index.union(other.index).sort_values()[::-1][:31]
 
-        def _get_s(df, col, dates):
-            return (df.reindex(dates)[col] / 1000) if col in df.columns else pd.Series(np.nan, index=dates)
-
-        def _build_tbl(dates):
-            data = {}
-            for src, lbl in [("MM Net","MM Net Old"),("Comm Net","Comm Net Old")]:
-                data[("Net · k lots", lbl)] = _get_s(old, src, dates).values
-            for src, lbl in [("MM Net","MM Net New"),("Comm Net","Comm Net New")]:
-                data[("Net · k lots", lbl)] = _get_s(other, src, dates).values
-            for src, lbl in [("MM Long","Old"),("MM Short","Old"),("Producer Long","Old"),("Producer Short","Old")]:
-                data[(src.replace("Producer","Prod"), lbl)] = _get_s(old, src, dates).values
-            for src, lbl in [("MM Long","New"),("MM Short","New"),("Producer Long","New"),("Producer Short","New")]:
-                data[(src.replace("Producer","Prod"), lbl)] = _get_s(other, src, dates).values
-            data[("OI · k lots", "Old")] = _get_s(old, "Total OI", dates).values
-            data[("OI · k lots", "New")] = _get_s(other, "Total OI", dates).values
-            return pd.DataFrame(data, index=dates)
-
-        # Levels table — no sign colouring
-        tbl_df = _build_tbl(common_dates)
-        tbl_df.index = pd.to_datetime(tbl_df.index).strftime("%d %b '%y")
-        tbl_df.index.name = None
-        st.markdown(_recap_html(tbl_df, scroll=True), unsafe_allow_html=True)
-
-        # Weekly change table — diff against the row one week earlier
-        tbl_ext = _build_tbl(common_dates_ext)
-        chg_df = tbl_ext.diff(-1).iloc[:len(common_dates)]   # row[i] - row[i+1] (newer minus older)
-        chg_df.index = pd.to_datetime(common_dates).strftime("%d %b '%y")
-        chg_df.index.name = None
-        st.markdown(
-            f"<p style='font-size:.72rem;color:{GRAY};margin:8px 0 2px'>Weekly change  ·  k lots</p>",
-            unsafe_allow_html=True)
-        all_groups = {g for g, _ in chg_df.columns}
-        st.markdown(_recap_html(chg_df, signed_groups=all_groups, scroll=True), unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
