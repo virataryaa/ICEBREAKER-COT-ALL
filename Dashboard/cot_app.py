@@ -2520,9 +2520,14 @@ def render_recap_charts(d, report, color, commodity):
 # ══════════════════════════════════════════════════════════════════════════════
 # SPEC VAR TAB
 # ══════════════════════════════════════════════════════════════════════════════
-def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: str):
+def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: str,
+                    start_date=None, end_date=None):
     var_df = _build_var_df(commodity)
     lot    = VAR_LOT_USD.get(commodity, 10)
+    t0 = pd.Timestamp(start_date) if start_date is not None else var_df["Date"].min() if not var_df.empty else pd.Timestamp("2000-01-01")
+    t1 = pd.Timestamp(end_date)   if end_date   is not None else var_df["Date"].max() if not var_df.empty else pd.Timestamp.now()
+    if not var_df.empty:
+        var_df = var_df[(var_df["Date"] >= t0) & (var_df["Date"] <= t1)]
 
     # colour palette for cross-commodity (KC/RC = blue family, CC/LCC = red/orange family)
     _VAR_COLORS = {
@@ -2760,6 +2765,7 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
                 sub.sort_values("Date")[["Date", spec_col]].dropna(subset=[spec_col]),
                 vs2.sort_values("Date"), on="Date", direction="backward",
             ).dropna(subset=["vpl"])
+            mc = mc[(mc["Date"] >= t0) & (mc["Date"] <= t1)]
             if mc.empty:
                 return None, None
             mc["NetVaR"] = mc[spec_col] * mc["vpl"] / 1e6
@@ -2869,7 +2875,7 @@ if is_options:
         else: st.info("Old / New crop split not available.")
     with tabs[5]:  render_concentration(df, color)
     with tabs[6]:  render_analysis(df, report, color)
-    with tabs[7]:  render_spec_var(commodity, df, report, color)
+    with tabs[7]:  render_spec_var(commodity, df, report, color, start_date, end_date)
 else:
     with tabs[0]:  render_recap(df, report, color, commodity)
     with tabs[1]:  render_recap_charts(df, report, color, commodity)
@@ -2884,4 +2890,4 @@ else:
     with tabs[6]:  render_concentration(df, color)
     with tabs[7]:  render_analysis(df, report, color)
     with tabs[8]:  render_comparison(commodity, start_date, end_date, color)
-    with tabs[9]:  render_spec_var(commodity, df, report, color)
+    with tabs[9]:  render_spec_var(commodity, df, report, color, start_date, end_date)
