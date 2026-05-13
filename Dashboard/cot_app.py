@@ -204,7 +204,7 @@ def load_roll_yield() -> pd.DataFrame:
         return pd.DataFrame(columns=["Date","Commodity","roll_yield_pct"])
     df = pd.read_parquet(path)
     df["Date"] = pd.to_datetime(df["Date"])
-    df["roll_yield_pct"] = (df["c1"] - df["c2"]) / df["c2"] * 100
+    df["roll_yield_pct"] = df["Roll_Yield_1yr"]
     return df[["Date","Commodity","roll_yield_pct"]].sort_values(["Commodity","Date"]).reset_index(drop=True)
 
 @st.cache_data(ttl=600)
