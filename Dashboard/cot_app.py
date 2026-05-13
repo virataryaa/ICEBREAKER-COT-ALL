@@ -2857,37 +2857,6 @@ def render_pairs(start_date=None, end_date=None):
             st.info("Select at least one element above.")
             return
 
-        latest_a = da.iloc[-1]
-        latest_b = db.iloc[-1]
-
-        def _fv(row, col):
-            v = row.get(col, np.nan)
-            if pd.isna(v): return "—"
-            cls = "rpos" if v > 0 else "rneg"
-            return f"<span class='{cls}'>{v:.0f}k</span>"
-        def _fc(va, vb):
-            if pd.isna(va) or pd.isna(vb): return "—"
-            v = va + vb
-            cls = "rpos" if v > 0 else "rneg"
-            return f"<span class='{cls}'>{v:.0f}k</span>"
-
-        hdr = (f"<tr style='background:#f3f4f6'><th class='idx'>Element</th>"
-               f"<th>{COMM_NAMES[comm_a]}</th><th>{COMM_NAMES[comm_b]}</th><th>Combined</th></tr>")
-        rows_html = ""
-        for net in sel_nets:
-            va = latest_a.get(net, np.nan)
-            vb = latest_b.get(net, np.nan)
-            rows_html += (f"<tr><td class='idx'>{net}</td>"
-                          f"<td>{_fv(latest_a, net)}</td>"
-                          f"<td>{_fv(latest_b, net)}</td>"
-                          f"<td>{_fc(va, vb)}</td></tr>")
-        st.markdown(
-            f"{_RECAP_CSS}<div style='overflow-x:auto'><table class='rtbl'>"
-            f"<thead>{hdr}</thead><tbody>{rows_html}</tbody></table></div>",
-            unsafe_allow_html=True,
-        )
-        st.markdown("")
-
         palette = ["#1d4ed8", "#dc2626", "#059669", "#7c3aed", "#d97706"]
         fig = go.Figure()
         for i, net in enumerate(sel_nets):
