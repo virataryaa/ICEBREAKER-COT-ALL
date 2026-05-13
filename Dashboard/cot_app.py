@@ -2548,22 +2548,22 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
         "SB": 1.6, "CT": 1.6,
     }
 
-    # ── derive MM+Other columns ───────────────────────────────────────────────
+    # ── build predefined combination columns ─────────────────────────────────
     df_c = df_cot.copy()
-    for side in ["Net", "Long", "Short"]:
-        col = f"MM + Other {side}"
-        if col not in df_c.columns:
-            mm_c, ot_c = f"MM {side}", f"Other {side}"
-            if mm_c in df_c.columns and ot_c in df_c.columns:
-                df_c[col] = df_c[mm_c] + df_c[ot_c]
-
-    # ── Net-only spec options ─────────────────────────────────────────────────
-    preferred_net = [
-        "MM Net", "MM + Other Net", "Other Net",
-        "Spec Net", "Index Net", "Non Rep Net",
-        "Combined Spec Net", "Swap Net",
-    ]
-    spec_opts = [c for c in preferred_net if c in df_c.columns]
+    if report == "CIT":
+        if "Spec Net" in df_c.columns and "Non Rep Net" in df_c.columns:
+            df_c["Spec + Non Rep Net"] = df_c["Spec Net"] + df_c["Non Rep Net"].fillna(0)
+        if "Spec + Non Rep Net" in df_c.columns and "Index Net" in df_c.columns:
+            df_c["Spec + Non Rep + Index Net"] = df_c["Spec + Non Rep Net"] + df_c["Index Net"].fillna(0)
+        spec_opts = [c for c in ["Spec Net", "Spec + Non Rep Net", "Spec + Non Rep + Index Net"]
+                     if c in df_c.columns]
+    else:
+        if "MM Net" in df_c.columns and "Non Rep Net" in df_c.columns:
+            df_c["MM + Non Rep Net"] = df_c["MM Net"] + df_c["Non Rep Net"].fillna(0)
+        if "MM + Non Rep Net" in df_c.columns and "Other Net" in df_c.columns:
+            df_c["MM + Non Rep + Other Net"] = df_c["MM + Non Rep Net"] + df_c["Other Net"].fillna(0)
+        spec_opts = [c for c in ["MM Net", "MM + Non Rep Net", "MM + Non Rep + Other Net"]
+                     if c in df_c.columns]
     if not spec_opts:
         st.warning("No spec Net columns found for this report type.")
         return
@@ -2804,9 +2804,13 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
         # ── Section A: Disagg F&O — all 6 commodities ─────────────────────────
         st.markdown("**Disagg F&O — all commodities**  ·  <span style='font-size:.75rem;color:#888'>always Disagg F&O regardless of sidebar selection</span>", unsafe_allow_html=True)
         disagg_fo = load_disagg("F&O")
+        if "MM Net" in disagg_fo.columns and "Non Rep Net" in disagg_fo.columns:
+            disagg_fo["MM + Non Rep Net"] = disagg_fo["MM Net"] + disagg_fo["Non Rep Net"].fillna(0)
+        if "MM + Non Rep Net" in disagg_fo.columns and "Other Net" in disagg_fo.columns:
+            disagg_fo["MM + Non Rep + Other Net"] = disagg_fo["MM + Non Rep Net"] + disagg_fo["Other Net"].fillna(0)
         _render_cross_section(
             list(COMM_NAMES.keys()), disagg_fo,
-            ["MM Net", "MM + Other Net", "Combined Spec Net"],
+            ["MM Net", "MM + Non Rep Net", "MM + Non Rep + Other Net"],
             f"var_cross_disagg_{commodity}",
             f"var_cross_chart_disagg_{commodity}",
         )
@@ -2816,9 +2820,13 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
         # ── Section B: CIT — US markets only ─────────────────────────────────
         st.markdown("**CIT — US markets (KC · CC · SB · CT)**  ·  <span style='font-size:.75rem;color:#888'>always CIT regardless of sidebar selection</span>", unsafe_allow_html=True)
         cit_all = load_cit()
+        if "Spec Net" in cit_all.columns and "Non Rep Net" in cit_all.columns:
+            cit_all["Spec + Non Rep Net"] = cit_all["Spec Net"] + cit_all["Non Rep Net"].fillna(0)
+        if "Spec + Non Rep Net" in cit_all.columns and "Index Net" in cit_all.columns:
+            cit_all["Spec + Non Rep + Index Net"] = cit_all["Spec + Non Rep Net"] + cit_all["Index Net"].fillna(0)
         _render_cross_section(
             ["KC", "CC", "SB", "CT"], cit_all,
-            ["Spec Net", "Index Net", "Non Rep Net", "Combined Spec Net"],
+            ["Spec Net", "Spec + Non Rep Net", "Spec + Non Rep + Index Net"],
             f"var_cross_cit_{commodity}",
             f"var_cross_chart_cit_{commodity}",
         )
