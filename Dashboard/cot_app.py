@@ -1276,6 +1276,10 @@ _RECAP_GROUP_BG = {
     "Prod Long":       "#e0e7ff",
     "Prod Short":      "#fce7f3",
     "Rollex Px":       "#fef3c7",
+    "Longs · k lots":  "#d1fae5",
+    "Shorts · k lots": "#fee2e2",
+    "Long % OI":       "#bbf7d0",
+    "Short % OI":      "#fecaca",
 }
 _RECAP_GROUP_TEXT = {
     "OI %": "#ffffff",
@@ -1492,6 +1496,66 @@ def _build_oi_df(d, report):
     return combined
 
 
+def _build_gross_legs_df(d, report):
+    d = d.sort_values("Date", ascending=True).reset_index(drop=True)
+    if d.empty:
+        return pd.DataFrame()
+
+    def gc(name):
+        return d[name].astype(float) if name in d.columns else pd.Series(0.0, index=d.index)
+
+    total_oi = gc("Total OI")
+
+    if report == "CIT":
+        cats = ["Large Spec", "Index", "Commercial", "Non-Rep"]
+        longs = {
+            "Large Spec": (gc("Spec Long")  + gc("Spec Spread")) / 1000,
+            "Index":       gc("Index Long")  / 1000,
+            "Commercial":  gc("Comm Long")   / 1000,
+            "Non-Rep":     gc("Non Rep Long") / 1000,
+        }
+        shorts = {
+            "Large Spec": (gc("Spec Short") + gc("Spec Spread")) / 1000,
+            "Index":       gc("Index Short")  / 1000,
+            "Commercial":  gc("Comm Short")   / 1000,
+            "Non-Rep":     gc("Non Rep Short") / 1000,
+        }
+    else:
+        cats = ["MM", "Other", "Swap", "Commercial", "Non-Rep"]
+        longs = {
+            "MM":         (gc("MM Long")    + gc("MM Spread"))    / 1000,
+            "Other":      (gc("Other Long") + gc("Other Spread")) / 1000,
+            "Swap":       (gc("Swap Long")  + gc("Swap Spread"))  / 1000,
+            "Commercial":  gc("Producer Long") / 1000,
+            "Non-Rep":     gc("Non Rep Long")  / 1000,
+        }
+        shorts = {
+            "MM":         (gc("MM Short")    + gc("MM Spread"))    / 1000,
+            "Other":      (gc("Other Short") + gc("Other Spread")) / 1000,
+            "Swap":       (gc("Swap Short")  + gc("Swap Spread"))  / 1000,
+            "Commercial":  gc("Producer Short") / 1000,
+            "Non-Rep":     gc("Non Rep Short")  / 1000,
+        }
+
+    long_df  = pd.DataFrame(longs).iloc[::-1].iloc[:20]
+    short_df = pd.DataFrame(shorts).iloc[::-1].iloc[:20]
+    idx      = pd.to_datetime(d["Date"]).iloc[::-1].iloc[:20]
+    tot_s    = (total_oi / 1000).iloc[::-1].iloc[:20].values
+
+    long_pct  = long_df.div(tot_s, axis=0) * 100
+    short_pct = short_df.div(tot_s, axis=0) * 100
+
+    combined = pd.concat([long_df[cats], short_df[cats], long_pct[cats], short_pct[cats]], axis=1)
+    combined.columns = pd.MultiIndex.from_tuples(
+        [("Longs · k lots",  c) for c in cats] +
+        [("Shorts · k lots", c) for c in cats] +
+        [("Long % OI",       c) for c in cats] +
+        [("Short % OI",      c) for c in cats]
+    )
+    combined.index = [f"{dt.day}-{dt.strftime('%b-%y')}" for dt in idx]
+    return combined
+
+
 def _build_nominal_df(d, commodity, report):
     d = d.sort_values("Date", ascending=True).reset_index(drop=True)
     if d.empty:
@@ -1643,6 +1707,15 @@ def render_recap(d, report, color, commodity="KC", is_options=False):
     oi_tbl = _build_oi_df(d, report)
     with st.expander("OI by category  ·  k lots  &  %", expanded=False):
         st.markdown(_recap_html(oi_tbl, signed_groups={"Δ 1w"}, pct_groups={"OI %"}, scroll=True), unsafe_allow_html=True)
+
+    gross_tbl = _build_gross_legs_df(d, report)
+    with st.expander("Gross legs by category  ·  k lots  &  % OI", expanded=False):
+        st.markdown(
+            "<p style='font-size:.72rem;color:#6e6e73;margin:0 0 6px'>"
+            "Long/Short include spreading positions. % columns are each leg divided by Total OI.</p>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(_recap_html(gross_tbl, pct_groups={"Long % OI", "Short % OI"}, scroll=True), unsafe_allow_html=True)
 
     nom_summary, nom_body = _build_nominal_df(d, commodity, report)
     if not nom_body.empty:
