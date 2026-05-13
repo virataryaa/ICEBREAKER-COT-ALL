@@ -299,44 +299,59 @@ def show_table(d: pd.DataFrame, pos_cols: list, chg_cols: list, label: str, n=60
     with st.expander(label, expanded=False):
         avail_p = [c for c in pos_cols if c and c in d.columns]
         avail_c = [c for c in chg_cols if c and c in d.columns]
-        tbl = d[["Date"] + avail_p].copy().sort_values("Date", ascending=False).head(n)
-        tbl["Date"] = pd.to_datetime(tbl["Date"]).dt.strftime("%d %b '%y")
-        for c in avail_c:
-            tbl[f"Δ {c}"] = d[c].diff().reindex(tbl.index)
+        src = d.sort_values("Date", ascending=False).head(n).copy()
+        dates = pd.to_datetime(src["Date"]).dt.strftime("%d %b '%y").tolist()
+
+        # build column data
+        col_data = {}
+        for col in avail_p:
+            col_data[col] = src[col].values
+        for col in avail_c:
+            col_data[f"Δ {col}"] = src[col].diff(-1).values  # newest-first diff
         if "Px" in avail_p:
-            tbl["Px Δ%"] = (d["Px"].pct_change() * 100).reindex(tbl.index).round(2)
+            col_data["Px Δ%"] = src["Px"].pct_change(-1).mul(100).values
         if "Total OI" in d.columns and "Total OI" not in avail_p:
-            tbl["OI (k)"] = (d["Total OI"] / 1000).reindex(tbl.index).round(1)
-        tbl = tbl.reset_index(drop=True)
-        num_cols = [c for c in tbl.columns if c != "Date"]
+            col_data["OI (k)"] = (src["Total OI"] / 1000).values
 
-        def _style(s):
-            styles = []
-            for v in s:
-                try:
-                    fv = float(v)
-                    if fv > 0: styles.append("color:#16a34a")
-                    elif fv < 0: styles.append("color:#dc2626")
-                    else: styles.append("")
-                except: styles.append("")
-            return styles
+        signed_cols = {c for c in col_data if c.startswith("Δ") or c == "Px Δ%"}
+        px_cols     = {"Px"}
+        pct_cols    = {"Px Δ%"}
+        oi_cols     = {"OI (k)"}
 
-        fmt = {c: "{:,.0f}" for c in num_cols
-               if "Pct" not in c and c not in ("Px", "Px Δ%") and not c.startswith("Δ")}
-        fmt.update({c: "{:.1f}%" for c in num_cols if "Pct" in c})
-        fmt["Px"]    = "{:.2f}"   if "Px"    in num_cols else None
-        fmt["Px Δ%"] = "{:+.2f}%" if "Px Δ%" in num_cols else None
-        fmt.update({f"Δ {c}": "{:+,.0f}" for c in avail_c if f"Δ {c}" in num_cols})
-        if "OI (k)" in num_cols: fmt["OI (k)"] = "{:,.1f}"
-        fmt = {k: v for k, v in fmt.items() if v and k in num_cols}
+        def _fmt(col, v):
+            if pd.isna(v): return "—"
+            if col in pct_cols:   return f"{v:+.2f}%"
+            if col in signed_cols: return f"{v:+,.0f}"
+            if col in px_cols:    return f"{v:.2f}"
+            if col in oi_cols:    return f"{v:,.1f}"
+            return f"{v:,.0f}"
 
-        delta_cols = [c for c in num_cols if c.startswith("Δ") or c == "Px Δ%"]
-        styled = (tbl.style
-                  .format(fmt, na_rep="—")
-                  .apply(_style, subset=delta_cols if delta_cols else [])
-                  .hide(axis="index"))
-        st.dataframe(styled, width='stretch', height=380)
+        headers = list(col_data.keys())
 
+        hdr_html = "<tr><th class='idx sub'>Date</th>"
+        for h in headers:
+            hdr_html += f"<th class='sub'>{h}</th>"
+        hdr_html += "</tr>"
+
+        body_html = ""
+        for i, date in enumerate(dates):
+            body_html += f"<tr><td class='idx'>{date}</td>"
+            for col in headers:
+                v = col_data[col][i]
+                txt = _fmt(col, v)
+                if col in signed_cols or col in pct_cols:
+                    try:
+                        fv = float(v)
+                        cls = "rpos" if fv > 0 else ("rneg" if fv < 0 else "")
+                    except: cls = ""
+                else:
+                    cls = ""
+                body_html += f"<td class='{cls}'>{txt}</td>"
+            body_html += "</tr>"
+
+        html = (f"{_RECAP_CSS}<div style='overflow-x:auto;overflow-y:auto;max-height:480px;margin-bottom:6px'>"
+                f"<table class='rtbl'><thead>{hdr_html}</thead><tbody>{body_html}</tbody></table></div>")
+        st.markdown(html, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CHART FUNCTIONS
