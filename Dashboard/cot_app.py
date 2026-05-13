@@ -46,7 +46,7 @@ ROLLEX_MAP  = {
     "RC": "rollex_RC.parquet",
     "LCC":"rollex_LCC.parquet",
 }
-VAR_DIR         = Path(__file__).resolve().parents[2] / "VaR" / "Database"
+VAR_DIR         = DB_DIR / "Futures"
 VAR_FUTURES_MAP = {
     "KC": "kc_futures.parquet",  "CC": "cc_futures.parquet",
     "SB": "sb_futures.parquet",  "CT": "ct_futures.parquet",
