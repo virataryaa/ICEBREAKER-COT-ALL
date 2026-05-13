@@ -46,12 +46,6 @@ ROLLEX_MAP  = {
     "RC": "rollex_RC.parquet",
     "LCC":"rollex_LCC.parquet",
 }
-VAR_DIR         = DB_DIR / "Futures"
-VAR_FUTURES_MAP = {
-    "KC": "kc_futures.parquet",  "CC": "cc_futures.parquet",
-    "SB": "sb_futures.parquet",  "CT": "ct_futures.parquet",
-    "RC": "rc_futures.parquet",  "LCC":"lcc_futures.parquet",
-}
 VAR_LOT_USD = {"KC":375, "CC":10, "SB":1120, "CT":500, "RC":10, "LCC":10}
 _CONF_Z     = 2.3263
 
@@ -229,23 +223,6 @@ def load_rollex(commodity: str) -> pd.DataFrame:
     df = df.reset_index()   # index named "Date" → column "Date"
     return df.sort_values("Date").reset_index(drop=True)
 
-@st.cache_data(ttl=3600)
-def load_front_settlement(commodity: str) -> pd.DataFrame:
-    fname = VAR_FUTURES_MAP.get(commodity)
-    if fname is None:
-        return pd.DataFrame(columns=["Date","settlement"])
-    path = VAR_DIR / fname
-    if not path.exists():
-        return pd.DataFrame(columns=["Date","settlement"])
-    raw = pd.read_parquet(path, columns=["Date","FND","settlement"])
-    raw["Date"] = pd.to_datetime(raw["Date"])
-    raw["FND"]  = pd.to_datetime(raw["FND"])
-    front = (raw[raw["FND"] >= raw["Date"]]
-             .sort_values(["Date","FND"])
-             .groupby("Date", as_index=False).first()
-             [["Date","settlement"]])
-    return front.sort_values("Date").reset_index(drop=True)
-
 
 @st.cache_data(ttl=3600)
 def _build_var_df(commodity: str) -> pd.DataFrame:
@@ -255,12 +232,6 @@ def _build_var_df(commodity: str) -> pd.DataFrame:
     rx = rx.sort_values("Date").reset_index(drop=True)
     for w in [20, 60, 120]:
         rx[f"vol_{w}"] = rx["rollex_ret"].rolling(w, min_periods=max(5, w // 4)).std()
-    fs = load_front_settlement(commodity)
-    if not fs.empty:
-        rx = pd.merge_asof(rx.sort_values("Date"), fs.sort_values("Date"),
-                           on="Date", direction="backward")
-    else:
-        rx["settlement"] = np.nan
     return rx.reset_index(drop=True)
 
 
@@ -2589,15 +2560,15 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
         if vcol not in var_df.columns or spec_sel not in df_c.columns:
             st.info("Data not available.")
         else:
-            var_s = var_df[["Date", vcol, "settlement"]].dropna().copy()
-            var_s["vpl"] = var_s["settlement"] * lot * var_s[vcol] * _CONF_Z
-
-            cols_sel = ["Date", spec_sel] + [c for c in [long_col, short_col] if c in df_c.columns]
+            vol_s = var_df[["Date", vcol]].dropna().copy()
+            extra_cols = [c for c in [long_col, short_col] if c in df_c.columns]
+            cols_sel = ["Date", spec_sel, "Px"] + extra_cols
             df_m = pd.merge_asof(
                 df_c.sort_values("Date")[cols_sel].dropna(subset=[spec_sel]),
-                var_s.sort_values("Date"),
+                vol_s.sort_values("Date"),
                 on="Date", direction="backward",
-            ).dropna(subset=["vpl"])
+            ).dropna(subset=[vcol])
+            df_m["vpl"] = df_m["Px"] * lot * df_m[vcol] * _CONF_Z
 
             df_m = df_m.sort_values("Date")
             df_m["Net VaR ($M)"]   = df_m[spec_sel] * df_m["vpl"] / 1e6
@@ -2642,12 +2613,12 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
         if spec_sel not in df_c.columns or vcol not in var_df.columns:
             st.info("Data not available.")
         else:
-            vs = var_df[["Date", vcol, "settlement"]].dropna().copy()
-            vs["vpl"] = vs["settlement"] * lot * vs[vcol] * _CONF_Z
+            vol_s = var_df[["Date", vcol]].dropna().copy()
             dm = pd.merge_asof(
-                df_c.sort_values("Date")[["Date", spec_sel]].dropna(subset=[spec_sel]),
-                vs.sort_values("Date"), on="Date", direction="backward",
-            ).dropna(subset=["vpl"])
+                df_c.sort_values("Date")[["Date", spec_sel, "Px"]].dropna(subset=[spec_sel]),
+                vol_s.sort_values("Date"), on="Date", direction="backward",
+            ).dropna(subset=[vcol])
+            dm["vpl"] = dm["Px"] * lot * dm[vcol] * _CONF_Z
             dm["VaR"] = dm[spec_sel] * dm["vpl"] / 1e6
             dm = dm.sort_values("Date")
 
@@ -2674,13 +2645,13 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
         if not has_legs or vcol not in var_df.columns:
             st.info("Long / Short columns not available for this report type.")
         else:
-            vs_ls = var_df[["Date", vcol, "settlement"]].dropna().copy()
-            vs_ls["vpl"] = vs_ls["settlement"] * lot * vs_ls[vcol] * _CONF_Z
-            ls_cols = ["Date"] + [c for c in [long_col, short_col] if c in df_c.columns]
+            vol_ls = var_df[["Date", vcol]].dropna().copy()
+            ls_cols = ["Date", "Px"] + [c for c in [long_col, short_col] if c in df_c.columns]
             dm_ls = pd.merge_asof(
                 df_c.sort_values("Date")[ls_cols],
-                vs_ls.sort_values("Date"), on="Date", direction="backward",
-            ).dropna(subset=["vpl"]).sort_values("Date")
+                vol_ls.sort_values("Date"), on="Date", direction="backward",
+            ).dropna(subset=[vcol]).sort_values("Date")
+            dm_ls["vpl"] = dm_ls["Px"] * lot * dm_ls[vcol] * _CONF_Z
             if long_col  in dm_ls.columns: dm_ls["Long VaR ($M)"]  = dm_ls[long_col]  * dm_ls["vpl"] / 1e6
             if short_col in dm_ls.columns: dm_ls["Short VaR ($M)"] = dm_ls[short_col] * dm_ls["vpl"] / 1e6
 
@@ -2727,12 +2698,12 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
             vc = f"vol_{c_win}"
             if vc not in cv_df.columns:
                 return None, None
-            vs2 = cv_df[["Date", vc, "settlement"]].dropna().copy()
-            vs2["vpl"] = vs2["settlement"] * VAR_LOT_USD.get(comm, 10) * vs2[vc] * _CONF_Z
+            vol_s2 = cv_df[["Date", vc]].dropna().copy()
             mc = pd.merge_asof(
-                sub.sort_values("Date")[["Date", spec_col]].dropna(subset=[spec_col]),
-                vs2.sort_values("Date"), on="Date", direction="backward",
-            ).dropna(subset=["vpl"])
+                sub.sort_values("Date")[["Date", spec_col, "Px"]].dropna(subset=[spec_col]),
+                vol_s2.sort_values("Date"), on="Date", direction="backward",
+            ).dropna(subset=[vc])
+            mc["vpl"] = mc["Px"] * VAR_LOT_USD.get(comm, 10) * mc[vc] * _CONF_Z
             mc = mc[(mc["Date"] >= t0) & (mc["Date"] <= t1)]
             if mc.empty:
                 return None, None
