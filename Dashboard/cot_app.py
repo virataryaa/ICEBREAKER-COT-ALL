@@ -1648,6 +1648,14 @@ def render_recap(d, report, color, commodity="KC", is_options=False):
     if not nom_body.empty:
         ccy = "GBP" if commodity == "LCC" else "USD"
         with st.expander(f"Nominal Exposure  ·  M {ccy}", expanded=False):
+            _spec_note = ("Spec Net = MM Net + Other Net + Non-Rep Net"
+                          if report != "CIT" else
+                          "Spec Net = Large Spec Net + Non-Rep Net")
+            st.markdown(
+                f"<div style='font-size:.72rem;color:#6b7280;margin-bottom:6px'>"
+                f"{_spec_note}</div>",
+                unsafe_allow_html=True,
+            )
             st.markdown(_recap_html(nom_summary, signed=True), unsafe_allow_html=True)
             st.markdown(_recap_html(nom_body, scroll=True), unsafe_allow_html=True)
 
