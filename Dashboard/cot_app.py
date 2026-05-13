@@ -2377,7 +2377,7 @@ def render_recap_charts(d, report, color, commodity):
                     title=dict(text=f"{commodity} — {title}", font=dict(size=11, color="#374151")),
                     height=380,
                     margin=dict(l=48, r=16, t=44, b=48),
-                    xaxis=dict(**_ax(), title=dict(text="Roll Yield (c1−c2)/c2  (%)", font=dict(size=9)), tickformat=".1f", ticksuffix="%"),
+                    xaxis=dict(**_ax(), title=dict(text="Roll Yield 1yr (%)", font=dict(size=9)), tickformat=".1f", ticksuffix="%"),
                     yaxis=dict(**_ax(), title=dict(text=ylabel, font=dict(size=9))),
                     showlegend=False,
                 )
