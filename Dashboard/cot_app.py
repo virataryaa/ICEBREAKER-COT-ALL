@@ -2584,7 +2584,7 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
 
 
     # ── Expander 2: Spec Book VaR — Net/Long/Short + WoW change ──────────────
-    with st.expander(f"Spec Book VaR — {spec_sel}  ·  {win_sel}D", expanded=True):
+    with st.expander(f"Spec Book VaR — {spec_sel}  ·  {win_sel}D  [{report}]", expanded=True):
         vcol = f"vol_{win_sel}"
         if vcol not in var_df.columns or spec_sel not in df_c.columns:
             st.info("Data not available.")
@@ -2637,7 +2637,7 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
             )
 
     # ── Expander 3: Book VaR timeseries — selected window only ───────────────
-    with st.expander(f"Book VaR — {win_sel}D timeseries  ({spec_sel})", expanded=True):
+    with st.expander(f"Book VaR — {win_sel}D timeseries  ({spec_sel}) [{report}]", expanded=True):
         vcol = f"vol_{win_sel}"
         if spec_sel not in df_c.columns or vcol not in var_df.columns:
             st.info("Data not available.")
@@ -2668,7 +2668,7 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
             st.plotly_chart(fig3, use_container_width=True)
 
     # ── Expander 4: Long / Short VaR decomposition ────────────────────────────
-    with st.expander(f"Long / Short VaR — {win_sel}D  ({base_name})", expanded=False):
+    with st.expander(f"Long / Short VaR — {win_sel}D  ({base_name}) [{report}]", expanded=False):
         vcol = f"vol_{win_sel}"
         has_legs = any(c in df_c.columns for c in [long_col, short_col])
         if not has_legs or vcol not in var_df.columns:
@@ -2799,7 +2799,7 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
             st.plotly_chart(fig_x, use_container_width=True)
 
         # ── Section A: Disagg F&O — all 6 commodities ─────────────────────────
-        st.markdown("**Disagg F&O — all commodities**")
+        st.markdown("**Disagg F&O — all commodities**  ·  <span style='font-size:.75rem;color:#888'>always Disagg F&O regardless of sidebar selection</span>", unsafe_allow_html=True)
         disagg_fo = load_disagg("F&O")
         _render_cross_section(
             list(COMM_NAMES.keys()), disagg_fo,
@@ -2810,7 +2810,7 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
         st.markdown("---")
 
         # ── Section B: CIT — US markets only ─────────────────────────────────
-        st.markdown("**CIT — US markets (KC · CC · SB · CT)**")
+        st.markdown("**CIT — US markets (KC · CC · SB · CT)**  ·  <span style='font-size:.75rem;color:#888'>always CIT regardless of sidebar selection</span>", unsafe_allow_html=True)
         cit_all = load_cit()
         _render_cross_section(
             ["KC", "CC", "SB", "CT"], cit_all,
