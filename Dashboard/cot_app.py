@@ -46,6 +46,14 @@ ROLLEX_MAP  = {
     "RC": "rollex_RC.parquet",
     "LCC":"rollex_LCC.parquet",
 }
+VAR_DIR         = Path(__file__).resolve().parents[2] / "VaR" / "Database"
+VAR_FUTURES_MAP = {
+    "KC": "kc_futures.parquet",  "CC": "cc_futures.parquet",
+    "SB": "sb_futures.parquet",  "CT": "ct_futures.parquet",
+    "RC": "rc_futures.parquet",  "LCC":"lcc_futures.parquet",
+}
+VAR_LOT_USD = {"KC":375, "CC":10, "SB":1120, "CT":500, "RC":10, "LCC":10}
+_CONF_Z     = 2.3263
 
 # ── Commodity config ──────────────────────────────────────────────────────────
 COMM_COLORS = {
@@ -220,6 +228,41 @@ def load_rollex(commodity: str) -> pd.DataFrame:
     df.index.name = "Date"
     df = df.reset_index()   # index named "Date" → column "Date"
     return df.sort_values("Date").reset_index(drop=True)
+
+@st.cache_data(ttl=3600)
+def load_front_settlement(commodity: str) -> pd.DataFrame:
+    fname = VAR_FUTURES_MAP.get(commodity)
+    if fname is None:
+        return pd.DataFrame(columns=["Date","settlement"])
+    path = VAR_DIR / fname
+    if not path.exists():
+        return pd.DataFrame(columns=["Date","settlement"])
+    raw = pd.read_parquet(path, columns=["Date","FND","settlement"])
+    raw["Date"] = pd.to_datetime(raw["Date"])
+    raw["FND"]  = pd.to_datetime(raw["FND"])
+    front = (raw[raw["FND"] >= raw["Date"]]
+             .sort_values(["Date","FND"])
+             .groupby("Date", as_index=False).first()
+             [["Date","settlement"]])
+    return front.sort_values("Date").reset_index(drop=True)
+
+
+@st.cache_data(ttl=3600)
+def _build_var_df(commodity: str) -> pd.DataFrame:
+    rx = load_rollex(commodity)
+    if rx.empty:
+        return pd.DataFrame()
+    rx = rx.sort_values("Date").reset_index(drop=True)
+    for w in [20, 60, 120]:
+        rx[f"vol_{w}"] = rx["rollex_ret"].rolling(w, min_periods=max(5, w // 4)).std()
+    fs = load_front_settlement(commodity)
+    if not fs.empty:
+        rx = pd.merge_asof(rx.sort_values("Date"), fs.sort_values("Date"),
+                           on="Date", direction="backward")
+    else:
+        rx["settlement"] = np.nan
+    return rx.reset_index(drop=True)
+
 
 def _inject_rollex(cot_df: pd.DataFrame, commodity: str) -> pd.DataFrame:
     """Replace Px with rollex_px via backward merge_asof on Date."""
@@ -2475,15 +2518,302 @@ def render_recap_charts(d, report, color, commodity):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SPEC VAR TAB
+# ══════════════════════════════════════════════════════════════════════════════
+def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: str):
+    var_df = _build_var_df(commodity)
+    lot    = VAR_LOT_USD.get(commodity, 10)
+
+    # ── derive MM+Other columns upfront ─────────────────────────────────────
+    df_c = df_cot.copy()
+    for side in ["Net", "Long", "Short"]:
+        col = f"MM + Other {side}"
+        if col not in df_c.columns:
+            mm_c, ot_c = f"MM {side}", f"Other {side}"
+            if mm_c in df_c.columns and ot_c in df_c.columns:
+                df_c[col] = df_c[mm_c] + df_c[ot_c]
+
+    # ── build spec options from available columns ────────────────────────────
+    preferred = [
+        "MM Net","MM Long","MM Short",
+        "MM + Other Net","MM + Other Long","MM + Other Short",
+        "Other Net","Other Long","Other Short",
+        "Spec Net","Spec Long","Spec Short",
+        "Index Net","Index Long","Index Short",
+        "Non Rep Net","Non Rep Long","Non Rep Short",
+        "Combined Spec Net","Combined Spec Long","Combined Spec Short",
+        "Swap Net","Swap Long","Swap Short",
+    ]
+    spec_opts = [c for c in preferred if c in df_c.columns]
+    if not spec_opts:
+        st.warning("No spec columns found for this report type.")
+        return
+
+    # ── controls ─────────────────────────────────────────────────────────────
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        spec_sel = st.selectbox("Spec Position", spec_opts, key=f"var_spec_{commodity}")
+    with c2:
+        win_sel = st.radio("Vol Window", [20, 60, 120], horizontal=True,
+                           format_func=lambda x: f"{x}D", key=f"var_win_{commodity}")
+
+    if var_df.empty:
+        st.warning(f"No rollex / VaR data for {commodity}.")
+        return
+
+    base_name  = spec_sel.rsplit(" ", 1)[0]   # e.g. "MM", "MM + Other", "Combined Spec"
+    long_col   = f"{base_name} Long"
+    short_col  = f"{base_name} Short"
+
+    # ── Expander 1: VaR per lot — current ────────────────────────────────────
+    with st.expander("VaR per lot — current", expanded=True):
+        rows_e1 = ""
+        for w in [20, 60, 120]:
+            vcol = f"vol_{w}"
+            if vcol not in var_df.columns:
+                continue
+            vdf_w = var_df.dropna(subset=[vcol])
+            if vdf_w.empty:
+                continue
+            row_l  = vdf_w.iloc[-1]
+            vol    = row_l[vcol]
+            px     = row_l.get("settlement", np.nan)
+            vpl    = px * lot * vol * _CONF_Z if pd.notna(px) and pd.notna(vol) else np.nan
+            hist   = vdf_w[vcol].iloc[max(0, len(vdf_w) - 504):]
+            pct    = float((hist < vol).mean() * 100) if len(hist) > 1 else np.nan
+            pc_col = ("#dc2626" if pd.notna(pct) and pct > 80
+                      else "#16a34a" if pd.notna(pct) and pct < 50 else "#d97706")
+            vpl_s  = f"${vpl:,.0f}" if pd.notna(vpl) else "—"
+            pct_s  = (f"<span style='color:{pc_col};font-weight:700'>{pct:.0f}th</span>"
+                      if pd.notna(pct) else "—")
+            px_s   = f"{px:.2f}" if pd.notna(px) else "—"
+            vol_s  = f"{vol * 100:.2f}%" if pd.notna(vol) else "—"
+            rows_e1 += (
+                f"<tr><td class='idx'>{w}D</td><td>{px_s}</td>"
+                f"<td>{vol_s}</td><td>{pct_s}</td>"
+                f"<td style='font-weight:700'>{vpl_s}</td></tr>"
+            )
+        hdr_e1 = ("<tr style='background:#f3f4f6'>"
+                  "<th class='idx'>Window</th><th>Front Price</th>"
+                  "<th>Daily σ</th><th>Vol %ile (2yr)</th><th>VaR / lot ($)</th></tr>")
+        st.markdown(
+            f"{_RECAP_CSS}<div style='overflow-x:auto'>"
+            f"<table class='rtbl'><thead>{hdr_e1}</thead><tbody>{rows_e1}</tbody></table></div>",
+            unsafe_allow_html=True,
+        )
+        st.caption(f"99% 1-day parametric VaR  ·  Settlement × {lot} (lot$) × σ × 2.3263")
+
+    # ── Expander 2: Spec Book VaR table ──────────────────────────────────────
+    with st.expander(f"Spec Book VaR — {spec_sel}  ·  {win_sel}D", expanded=True):
+        vcol = f"vol_{win_sel}"
+        if vcol not in var_df.columns or spec_sel not in df_c.columns:
+            st.info("Data not available.")
+        else:
+            var_s = var_df[["Date", vcol, "settlement"]].dropna().copy()
+            var_s["vpl"] = var_s["settlement"] * lot * var_s[vcol] * _CONF_Z
+
+            extra = [c for c in [long_col, short_col] if c in df_c.columns]
+            df_m = pd.merge_asof(
+                df_c.sort_values("Date")[["Date", spec_sel] + extra].dropna(subset=[spec_sel]),
+                var_s.sort_values("Date"),
+                on="Date", direction="backward",
+            ).dropna(subset=["vpl"]).sort_values("Date", ascending=False).head(40)
+
+            df_m["Pos VaR ($M)"] = df_m[spec_sel] * df_m["vpl"] / 1e6
+            if long_col  in df_m.columns: df_m["Long VaR ($M)"]  = df_m[long_col]  * df_m["vpl"] / 1e6
+            if short_col in df_m.columns: df_m["Short VaR ($M)"] = df_m[short_col] * df_m["vpl"] / 1e6
+
+            def _mfmt(v):
+                if pd.isna(v): return "—"
+                cls = "rpos" if v > 0 else "rneg"
+                return f"<span class='{cls}'>${v:.1f}M</span>"
+
+            rows_e2 = ""
+            for _, r in df_m.iterrows():
+                net_k  = f"{r[spec_sel]/1000:.1f}k" if pd.notna(r.get(spec_sel)) else "—"
+                lng_k  = (f"{r[long_col]/1000:.1f}k"  if long_col  in df_m.columns and pd.notna(r.get(long_col))  else "—")
+                sht_k  = (f"{r[short_col]/1000:.1f}k" if short_col in df_m.columns and pd.notna(r.get(short_col)) else "—")
+                vpl_v  = f"${r['vpl']:,.0f}" if pd.notna(r.get("vpl")) else "—"
+                rows_e2 += (
+                    f"<tr><td class='idx'>{r['Date'].strftime('%d-%b-%y')}</td>"
+                    f"<td>{net_k}</td><td>{lng_k}</td><td>{sht_k}</td>"
+                    f"<td>{vpl_v}</td>"
+                    f"<td>{_mfmt(r.get('Pos VaR ($M)'))}</td>"
+                    f"<td>{_mfmt(r.get('Long VaR ($M)'))}</td>"
+                    f"<td>{_mfmt(r.get('Short VaR ($M)'))}</td></tr>"
+                )
+            hdr_e2 = ("<tr style='background:#f3f4f6'>"
+                      "<th class='idx'>Date</th>"
+                      f"<th>{spec_sel} (k)</th><th>Long (k)</th><th>Short (k)</th>"
+                      "<th>VaR/lot($)</th>"
+                      "<th>Pos VaR($M)</th><th>Long VaR($M)</th><th>Short VaR($M)</th></tr>")
+            st.markdown(
+                f"{_RECAP_CSS}<div style='overflow-x:auto;overflow-y:auto;max-height:480px'>"
+                f"<table class='rtbl'><thead>{hdr_e2}</thead><tbody>{rows_e2}</tbody></table></div>",
+                unsafe_allow_html=True,
+            )
+
+    # ── Expander 3: Book VaR timeseries ──────────────────────────────────────
+    with st.expander(f"Book VaR — timeseries  ({spec_sel})", expanded=True):
+        if spec_sel not in df_c.columns:
+            st.info("Data not available.")
+        else:
+            from functools import reduce as _reduce
+            ts_frames = []
+            for w in [20, 60, 120]:
+                vc = f"vol_{w}"
+                if vc not in var_df.columns:
+                    continue
+                vs = var_df[["Date", vc, "settlement"]].dropna().copy()
+                vs["vpl"] = vs["settlement"] * lot * vs[vc] * _CONF_Z
+                dm = pd.merge_asof(
+                    df_c.sort_values("Date")[["Date", spec_sel]].dropna(subset=[spec_sel]),
+                    vs.sort_values("Date"), on="Date", direction="backward",
+                ).dropna(subset=["vpl"])
+                dm[f"VaR_{w}"] = dm[spec_sel] * dm["vpl"] / 1e6
+                ts_frames.append(dm[["Date", f"VaR_{w}"]])
+
+            if not ts_frames:
+                st.info("No timeseries data.")
+            else:
+                df_ts = _reduce(lambda a, b: pd.merge(a, b, on="Date", how="outer"), ts_frames)
+                df_ts = df_ts.sort_values("Date")
+                px_s  = var_df[["Date","settlement"]].dropna().sort_values("Date")
+
+                fig = make_subplots(specs=[[{"secondary_y": True}]])
+                wcolors = {20:"#1a56db", 60:"#d97706", 120:"#7c3aed"}
+                for w, wc in wcolors.items():
+                    col_k = f"VaR_{w}"
+                    if col_k not in df_ts.columns:
+                        continue
+                    fig.add_trace(go.Scatter(
+                        x=df_ts["Date"], y=df_ts[col_k],
+                        mode="lines", name=f"{w}D VaR ($M)",
+                        line=dict(color=wc, width=1.5),
+                    ), secondary_y=False)
+                fig.add_trace(go.Scatter(
+                    x=px_s["Date"], y=px_s["settlement"],
+                    mode="lines", name="Front Settlement",
+                    line=dict(color=C_PRICE, width=1, dash="dot"), opacity=0.65,
+                ), secondary_y=True)
+                fig.update_layout(
+                    **_BASE, height=380,
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                                xanchor="left", x=0),
+                    margin=dict(l=0, r=0, t=30, b=0),
+                    hovermode="x unified",
+                )
+                fig.update_yaxes(title_text="Book VaR ($M)", **_ax(), secondary_y=False)
+                fig.update_yaxes(title_text="Front Settlement", **_ax(),
+                                 showgrid=False, secondary_y=True)
+                fig.update_xaxes(**_ax(x=True))
+                st.plotly_chart(fig, use_container_width=True)
+
+    # ── Expander 4: Cross-Commodity Comparison ────────────────────────────────
+    with st.expander("Cross-Commodity Comparison", expanded=False):
+        cross_opts = ["MM Net", "MM + Other Net", "MM Long", "MM Short",
+                      "MM + Other Long", "MM + Other Short"]
+        c_spec = st.selectbox(
+            "Spec (Disagg F&O — all commodities)", cross_opts,
+            key=f"var_cross_spec_{commodity}",
+        )
+        c_win = st.radio(
+            "Window", [20, 60, 120], horizontal=True,
+            format_func=lambda x: f"{x}D", key=f"var_cross_win_{commodity}",
+        )
+
+        disagg_fo = load_disagg("F&O")
+        rows_snap, ts_traces = [], []
+
+        for comm in COMM_NAMES:
+            sub = disagg_fo[disagg_fo["Commodity"] == comm].copy()
+            if sub.empty:
+                continue
+            if "MM + Other" in c_spec:
+                side = c_spec.split()[-1]
+                sub[c_spec] = sub.get(f"MM {side}", pd.Series(0, index=sub.index)) +                               sub.get(f"Other {side}", pd.Series(0, index=sub.index))
+            if c_spec not in sub.columns:
+                continue
+
+            cv_df = _build_var_df(comm)
+            if cv_df.empty:
+                continue
+            c_lot = VAR_LOT_USD.get(comm, 10)
+            vc    = f"vol_{c_win}"
+            if vc not in cv_df.columns:
+                continue
+            vs2 = cv_df[["Date", vc, "settlement"]].dropna().copy()
+            vs2["vpl"] = vs2["settlement"] * c_lot * vs2[vc] * _CONF_Z
+            mc = pd.merge_asof(
+                sub.sort_values("Date")[["Date", c_spec]].dropna(subset=[c_spec]),
+                vs2.sort_values("Date"), on="Date", direction="backward",
+            ).dropna(subset=["vpl"])
+            if mc.empty:
+                continue
+            mc["NetVaR"] = mc[c_spec] * mc["vpl"] / 1e6
+            snap = mc.sort_values("Date").iloc[-1]
+            rows_snap.append({
+                "comm": comm,
+                "name": COMM_NAMES[comm],
+                "date": snap["Date"].strftime("%d-%b-%y"),
+                "pos_k": f"{snap[c_spec]/1000:.1f}k",
+                "vpl": f"${snap['vpl']:,.0f}",
+                "net_var": snap["NetVaR"],
+            })
+            ts_traces.append((comm, mc[["Date","NetVaR"]].copy()))
+
+        if rows_snap:
+            rows_snap.sort(key=lambda x: abs(x["net_var"]) if pd.notna(x["net_var"]) else 0, reverse=True)
+            snap_rows = ""
+            for r in rows_snap:
+                nv  = r["net_var"]
+                nv_s = (f"<span class='{'rpos' if nv > 0 else 'rneg'}'>${nv:.1f}M</span>"
+                        if pd.notna(nv) else "—")
+                snap_rows += (
+                    f"<tr><td class='idx'>{r['name']}</td>"
+                    f"<td>{r['date']}</td><td>{r['pos_k']}</td>"
+                    f"<td>{r['vpl']}</td><td>{nv_s}</td></tr>"
+                )
+            snap_hdr = ("<tr style='background:#f3f4f6'>"
+                        "<th class='idx'>Commodity</th><th>Date</th>"
+                        f"<th>{c_spec} (k)</th><th>VaR/lot($)</th>"
+                        "<th>Book VaR($M)</th></tr>")
+            st.markdown(
+                f"{_RECAP_CSS}<div style='overflow-x:auto'>"
+                f"<table class='rtbl'><thead>{snap_hdr}</thead><tbody>{snap_rows}</tbody></table></div>",
+                unsafe_allow_html=True,
+            )
+
+        if ts_traces:
+            fig2 = go.Figure()
+            for comm, ts in ts_traces:
+                fig2.add_trace(go.Scatter(
+                    x=ts["Date"], y=ts["NetVaR"],
+                    mode="lines", name=COMM_NAMES[comm],
+                    line=dict(color=COMM_COLORS[comm], width=1.5),
+                ))
+            fig2.update_layout(
+                **_BASE, height=360,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                            xanchor="left", x=0),
+                margin=dict(l=0, r=0, t=30, b=0),
+                hovermode="x unified",
+                yaxis=dict(**_ax(), title=dict(text="Book VaR ($M)", font=dict(size=9))),
+                xaxis=dict(**_ax(x=True)),
+            )
+            st.plotly_chart(fig2, use_container_width=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # TABS
 # ══════════════════════════════════════════════════════════════════════════════
 # Options Only: hide Spreading (options spreads ≠ calendar spreads) and CIT vs Disagg (CIT is fut-only)
 if is_options:
     TAB_LABELS = ["Recap","Recap (Charts)","Spec","Commercial","Old / New",
-                  "Concentration","Scatter Plot"]
+                  "Concentration","Scatter Plot","Spec VaR"]
 else:
     TAB_LABELS = ["Recap","Recap (Charts)","Spec","Commercial","Spreading","Old / New",
-                  "Concentration","Scatter Plot","CIT vs Disagg"]
+                  "Concentration","Scatter Plot","CIT vs Disagg","Spec VaR"]
 
 tabs = st.tabs(TAB_LABELS)
 
@@ -2497,6 +2827,7 @@ if is_options:
         else: st.info("Old / New crop split not available.")
     with tabs[5]:  render_concentration(df, color)
     with tabs[6]:  render_analysis(df, report, color)
+    with tabs[7]:  render_spec_var(commodity, df, report, color)
 else:
     with tabs[0]:  render_recap(df, report, color, commodity)
     with tabs[1]:  render_recap_charts(df, report, color, commodity)
@@ -2511,3 +2842,4 @@ else:
     with tabs[6]:  render_concentration(df, color)
     with tabs[7]:  render_analysis(df, report, color)
     with tabs[8]:  render_comparison(commodity, start_date, end_date, color)
+    with tabs[9]:  render_spec_var(commodity, df, report, color)
