@@ -2487,7 +2487,8 @@ def render_recap_charts(d, report, color, commodity):
     # ── Roll Yield vs Positioning ──────────────────────────────────────────────
     with st.expander("Roll Yield vs Positioning", expanded=True):
         ry_all = load_roll_yield()
-        ry_comm = ry_all[ry_all["Commodity"] == commodity].copy()
+        _ry_key = {"LSU": "W"}.get(commodity, commodity)
+        ry_comm = ry_all[ry_all["Commodity"] == _ry_key].copy()
         if ry_comm.empty:
             st.info("Roll yield data not available for this commodity.")
         else:
