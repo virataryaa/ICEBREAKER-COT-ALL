@@ -61,8 +61,8 @@ COMM_NAMES = {
     "SB":"SB : Sugar #11","CT":"CT : Cotton #2",
     "RC":"RC : Robusta Coffee","LCC":"LCC : London Cocoa",
     "LSU":"LSU : London White Sugar",
-    "KRC":"KRC : Combined Coffee (KC + RC)",
-    "CLC":"CLC : Combined Cocoa (CC + LCC)",
+    "KRC":"KC + RC : Combined Coffee",
+    "CLC":"CC + LCC : Combined Cocoa",
 }
 CONTRACT_SIZE = {"KC":37500,"CC":10,"SB":112000,"CT":50000,"RC":10,"LCC":10,"LSU":50,"KRC":1,"CLC":1}
 CONTRACT_UNIT = {"KC":"lbs","CC":"MT","SB":"lbs","CT":"lbs","RC":"MT","LCC":"MT","LSU":"MT","KRC":"lots","CLC":"lots"}
