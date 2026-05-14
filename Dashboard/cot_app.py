@@ -2270,17 +2270,29 @@ def render_analysis(d, report, color, commodity="KC"):
         st.plotly_chart(fig_reg, width='stretch')
 
         with st.expander("Actual vs Predicted — weekly change (last 1Y)", expanded=False):
-            bar_n      = 52
+            bar_win = st.radio(
+                "History",
+                ["1Y", "2Y", "5Y", "All"],
+                index=0, horizontal=True,
+                key="avp_window",
+            )
+            bar_n_map = {"1Y": 52, "2Y": 104, "5Y": 260}
             all_dates  = pd.to_datetime(_d_dates)
             ds_full    = _sel_full.diff()
             pred_full  = beta * _px_chg_full + alpha
             bar_mask   = ~(ds_full.isna() | _px_chg_full.isna())
-            bar_dates  = all_dates[bar_mask].values[-bar_n:]
-            bar_actual = ds_full[bar_mask].values[-bar_n:]
-            bar_pred   = pred_full[bar_mask].values[-bar_n:]
-            bar_labels = pd.to_datetime(bar_dates).strftime("%d %b '%y")
-            residuals  = bar_actual - bar_pred
-            res_clr    = [C_LONG if v >= 0 else C_SHORT for v in residuals]
+            _all_dates_v  = all_dates[bar_mask].values
+            _all_actual   = ds_full[bar_mask].values
+            _all_pred     = pred_full[bar_mask].values
+            bar_n         = bar_n_map.get(bar_win, len(_all_dates_v))
+            bar_dates     = _all_dates_v[-bar_n:]
+            bar_actual    = _all_actual[-bar_n:]
+            bar_pred      = _all_pred[-bar_n:]
+            bar_labels    = pd.to_datetime(bar_dates).strftime("%d %b '%y")
+            residuals     = bar_actual - bar_pred
+            res_clr       = [C_LONG if v >= 0 else C_SHORT for v in residuals]
+            win_txt       = bar_win if bar_win != "All" else "full history"
+            bar_h         = max(340, min(520, 280 + len(bar_dates) * 2))
             fig_avp = go.Figure()
             fig_avp.add_trace(go.Bar(
                 x=bar_labels, y=bar_actual,
@@ -2294,8 +2306,8 @@ def render_analysis(d, report, color, commodity="KC"):
                 x=bar_labels, y=residuals, name="Error (Actual − Pred)",
                 mode="markers", marker=dict(color=res_clr, size=5, symbol="diamond"),
                 hovertemplate="<b>%{x}</b><br>Error (Actual − Pred): %{y:+.2f}k<extra></extra>"))
-            fig_avp.update_layout(**_BASE, height=340, barmode="group",
-                title=dict(text=f"Actual vs Predicted Δ{sel}  ·  last {bar_n}w",
+            fig_avp.update_layout(**_BASE, height=bar_h, barmode="group",
+                title=dict(text=f"Actual vs Predicted Δ{sel}  ·  {win_txt}",
                            font=dict(size=11, color="#374151"), x=0),
                 margin=dict(l=56, r=24, t=44, b=80),
                 xaxis={**_ax(x=True), "tickangle": -45, "tickfont": dict(size=8)},
