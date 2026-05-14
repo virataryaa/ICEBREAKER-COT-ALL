@@ -2235,12 +2235,13 @@ def render_analysis(d, report, color, commodity="KC"):
             f"<div style='{_val}'>{last_cot_date.strftime('%a %d %b %Y')}</div></div>"
             # COT price
             f"<div style='{_card}'>"
-            f"<div style='{_lbl}'>COT PRICE</div>"
+            f"<div style='{_lbl}'>ROLLEX PRICE"
+            f"<span style='font-weight:600;color:#64748b;font-size:.68rem'> · LAST COT</span></div>"
             f"<div style='{_val}'>{last_cot_px:.2f}</div></div>"
             # Latest price
             f"<div style='{_card}'>"
-            f"<div style='{_lbl}'>LATEST PRICE"
-            f"<span style='font-weight:600;color:#64748b;font-size:.68rem'> · {latest_date.strftime('%d %b')}</span></div>"
+            f"<div style='{_lbl}'>ROLLEX PRICE"
+            f"<span style='font-weight:600;color:#64748b;font-size:.68rem'> · LATEST · {latest_date.strftime('%d %b')}</span></div>"
             f"<div style='{_val}'>{latest_px:.2f}</div></div>"
             # Price move
             f"<div style='{_card}'>"
