@@ -2110,7 +2110,7 @@ def render_analysis(d, report, color, commodity="KC"):
     _reg_default = "Large+Small+Index Net" if report == "CIT" else "MM + Non Rep + Others"
 
     @st.fragment
-    def _reg_frag(metrics_f, px_f, px_chg_f, color_f, commodity_f, best_metric_f, last_date_f):
+    def _reg_frag(metrics_f, px_f, px_chg_f, color_f, commodity_f, best_metric_f, last_date_f, dates_f):
         st.markdown("""<style>
         div[data-testid="stSelectbox"] > div > div[data-baseweb="select"] > div {
             border-color: #d1d5db !important; border-radius: 7px !important;
@@ -2257,6 +2257,10 @@ def render_analysis(d, report, color, commodity="KC"):
                 bgcolor="rgba(255,255,255,0.9)", borderpad=5,
                 xanchor="left", yanchor="top",
                 bordercolor="#e2e8f0", borderwidth=1)
+            fig_reg.add_annotation(x=0.98, y=0.98, xref="paper", yref="paper",
+                text=f"<i>Δ{sel} = {beta:+.2f} × ΔPx% + {alpha:+.2f}</i>",
+                showarrow=False, font=dict(size=10, color="#94a3b8"),
+                bgcolor="rgba(255,255,255,0)", xanchor="right", yanchor="top")
             fig_reg.update_layout(**_BASE, height=420,
                 title=dict(text=f"Δ{sel}  vs  ΔPx% 1w  ·  weekly changes",
                            font=dict(size=11, color="#374151"), x=0),
@@ -2264,12 +2268,45 @@ def render_analysis(d, report, color, commodity="KC"):
                 xaxis=dict(**_ax(x=True), title_text="Price Δ% 1w", ticksuffix="%"),
                 yaxis=dict(**_ax(), title_text=f"Δ{sel} (k lots)"))
             st.plotly_chart(fig_reg, width='stretch')
-            st.markdown(
-                f"<p style='font-size:.68rem;color:#94a3b8;margin:0 0 4px'>"
-                f"Δ{sel} = {beta:+.2f} × ΔPx% + {alpha:+.2f}  ·  fitted on {len(x_hist)} weekly obs.</p>",
-                unsafe_allow_html=True)
 
-    _reg_frag(metrics, px, px_chg, color, commodity, _reg_default, d.iloc[-1]["Date"])
+            # ── Actual vs Predicted expander ──────────────────────────────────
+            with st.expander("Actual vs Predicted — weekly change (last 1Y)", expanded=False):
+                bar_n   = 52
+                all_dates = pd.to_datetime(dates_f)
+                ds_full   = sel_series_full.diff()
+                pred_full = beta * px_chg_r_full + alpha
+                bar_mask  = ~(ds_full.isna() | px_chg_r_full.isna())
+                bar_dates  = all_dates[bar_mask].values[-bar_n:]
+                bar_actual = ds_full[bar_mask].values[-bar_n:]
+                bar_pred   = pred_full[bar_mask].values[-bar_n:]
+                bar_labels = pd.to_datetime(bar_dates).strftime("%d %b '%y")
+                residuals  = bar_actual - bar_pred
+                res_clr    = [C_LONG if v >= 0 else C_SHORT for v in residuals]
+
+                fig_avp = go.Figure()
+                fig_avp.add_trace(go.Bar(
+                    x=bar_labels, y=bar_actual,
+                    name="Actual", marker_color=color_f, opacity=0.75,
+                    hovertemplate="<b>%{x}</b><br>Actual Δ: %{y:+.2f}k<extra></extra>"))
+                fig_avp.add_trace(go.Bar(
+                    x=bar_labels, y=bar_pred,
+                    name="Predicted", marker_color="#94a3b8", opacity=0.65,
+                    hovertemplate="<b>%{x}</b><br>Predicted Δ: %{y:+.2f}k<extra></extra>"))
+                fig_avp.add_trace(go.Scatter(
+                    x=bar_labels, y=residuals, name="Residual",
+                    mode="markers", marker=dict(color=res_clr, size=5, symbol="diamond"),
+                    hovertemplate="<b>%{x}</b><br>Residual: %{y:+.2f}k<extra></extra>"))
+                fig_avp.update_layout(**_BASE, height=340, barmode="group",
+                    title=dict(text=f"Actual vs Predicted Δ{sel}  ·  last {bar_n}w",
+                               font=dict(size=11, color="#374151"), x=0),
+                    margin=dict(l=56, r=24, t=44, b=80),
+                    xaxis=dict(**_ax(x=True), tickangle=-45, tickfont=dict(size=8)),
+                    yaxis=dict(**_ax(), title_text="Δ (k lots)"),
+                    legend=dict(orientation="h", y=1.08, x=1, xanchor="right",
+                                font=dict(size=9)))
+                st.plotly_chart(fig_avp, width='stretch')
+
+    _reg_frag(metrics, px, px_chg, color, commodity, _reg_default, d.iloc[-1]["Date"], d["Date"].values)
 
     st.markdown("---")
 
