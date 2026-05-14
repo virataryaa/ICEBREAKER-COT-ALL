@@ -2101,9 +2101,57 @@ def render_analysis(d, report, color, commodity="KC"):
     px_chg = px.pct_change() * 100
     px_fwd = px_chg.shift(-1)
 
-    # ── Section 1: Correlation Matrix ─────────────────────────────────────────
+    # ── Section 1: Pairwise COT Correlation ──────────────────────────────────
     st.markdown("<div style='font-size:.88rem;font-weight:700;color:#374151;"
-                "margin:0 0 8px;letter-spacing:.02em'>CORRELATION MATRIX</div>",
+                "margin:0 0 8px;letter-spacing:.02em'>PAIRWISE COT CORRELATION  ·  weekly Δ</div>",
+                unsafe_allow_html=True)
+
+    pw_series = {name: s.diff() for name, s in metrics.items()}
+    pw_series["Rollex %Δ"] = px_chg
+    pw_df = pd.DataFrame(pw_series).dropna(how="all")
+    if len(pw_df) >= 4:
+        pw_corr = pw_df.corr()
+        np.fill_diagonal(pw_corr.values, np.nan)
+        labels = list(pw_corr.columns)
+        n      = len(labels)
+        tick_y = [f"<b>Rollex %Δ</b>" if l == "Rollex %Δ" else l for l in labels]
+        zv = pw_corr.values.tolist()
+        tv = [[f"{v:+.2f}" if pd.notna(v) else "" for v in row] for row in zv]
+        cell_h = 34
+        fig_pw = go.Figure(go.Heatmap(
+            z=zv, x=labels, y=labels,
+            colorscale=[[0,"#dc2626"],[0.45,"#fef2f2"],[0.5,"#f9fafb"],[0.55,"#f0fdf4"],[1,"#16a34a"]],
+            zmid=0, zmin=-1, zmax=1,
+            text=tv, texttemplate="%{text}", textfont=dict(size=9.5, color="#111"),
+            hovertemplate="<b>%{y}</b> vs <b>%{x}</b>: %{z:.3f}<extra></extra>",
+            colorbar=dict(title=dict(text="r", side="right"), thickness=12, len=0.72,
+                          tickvals=[-1,-0.5,0,0.5,1], tickfont=dict(size=9)),
+            xgap=2, ygap=2,
+        ))
+        rollex_idx = labels.index("Rollex %Δ")
+        fig_pw.add_shape(type="line", xref="paper", yref="y",
+            x0=0, x1=1, y0=rollex_idx - 0.52, y1=rollex_idx - 0.52,
+            line=dict(color="#374151", width=1.8, dash="dot"))
+        fig_pw.update_layout(**_BASE,
+            height=max(340, cell_h * n + 140),
+            margin=dict(l=170, r=60, t=130, b=24),
+            xaxis=dict(side="top", tickangle=-40, tickfont=dict(size=9),
+                       showgrid=False, showline=False, zeroline=False),
+            yaxis=dict(autorange="reversed", tickfont=dict(size=9),
+                       tickvals=labels, ticktext=tick_y,
+                       showgrid=False, showline=False, zeroline=False),
+        )
+        st.plotly_chart(fig_pw, width='stretch')
+    else:
+        st.info("Not enough overlapping data for pairwise correlation.")
+
+    st.markdown("---")
+
+    # ── Section 2: Correlation with Rollex ───────────────────────────────────
+    st.markdown("<div style='font-size:.88rem;font-weight:700;color:#374151;"
+                "margin:0 0 8px;letter-spacing:.02em'>"
+                "CORRELATION WITH ROLLEX  ·  Px level &nbsp;·&nbsp; weekly Δ &nbsp;·&nbsp; forward Δ"
+                "</div>",
                 unsafe_allow_html=True)
 
     corr_rows = {}
@@ -2125,7 +2173,6 @@ def render_analysis(d, report, color, commodity="KC"):
 
     if corr_rows:
         corr_df = pd.DataFrame(corr_rows).T.fillna(0)
-        # Sort by abs forward correlation
         if "→ ΔPx% fwd" in corr_df.columns:
             corr_df = corr_df.reindex(corr_df["→ ΔPx% fwd"].abs().sort_values(ascending=False).index)
 
@@ -2138,61 +2185,19 @@ def render_analysis(d, report, color, commodity="KC"):
             text=text_vals, texttemplate="%{text}", textfont=dict(size=10, color="#111"),
             hovertemplate="<b>%{y}</b><br>%{x}: %{z:.3f}<extra></extra>",
             colorbar=dict(title="r", thickness=10, len=0.8, tickfont=dict(size=9)),
+            xgap=2, ygap=2,
         ))
+        n_rows = len(corr_df)
         fig_heat.update_layout(**_BASE,
-            height=max(260, 26 * len(corr_df) + 80),
-            margin=dict(l=180, r=50, t=30, b=30),
-            xaxis=dict(side="top", tickfont=dict(size=10)),
-            yaxis=dict(autorange="reversed", tickfont=dict(size=10)),
+            height=max(260, 30 * n_rows + 80),
+            margin=dict(l=150, r=40, t=36, b=20),
+            xaxis=dict(side="top", tickfont=dict(size=11), showgrid=False, zeroline=False),
+            yaxis=dict(autorange="reversed", tickfont=dict(size=10), showgrid=False, zeroline=False),
         )
-        st.plotly_chart(fig_heat, width='stretch')
+        _hcol, _ = st.columns([3, 2])
+        with _hcol:
+            st.plotly_chart(fig_heat, width='stretch')
 
-        # ── Pairwise COT correlation (weekly Δ) ──────────────────────────────
-        with st.expander("Pairwise COT Correlation  ·  weekly Δ  (all elements + Rollex)", expanded=False):
-            pw_series = {name: s.diff() for name, s in metrics.items()}
-            pw_series["Rollex %Δ"] = px_chg
-            pw_df = pd.DataFrame(pw_series).dropna(how="all")
-            if len(pw_df) >= 4:
-                pw_corr = pw_df.corr()
-                np.fill_diagonal(pw_corr.values, np.nan)   # blank diagonal — exclude from colour scale
-                labels    = list(pw_corr.columns)
-                n         = len(labels)
-                # Bold only the y-axis (row) Rollex label; x-axis stays plain
-                tick_y = [f"<b>Rollex %Δ</b>" if l == "Rollex %Δ" else l for l in labels]
-                zv = pw_corr.values.tolist()
-                tv = [[f"{v:+.2f}" if pd.notna(v) else "" for v in row] for row in zv]
-
-                cell_h = 34
-                fig_pw = go.Figure(go.Heatmap(
-                    z=zv, x=labels, y=labels,
-                    colorscale=[[0,"#dc2626"],[0.45,"#fef2f2"],[0.5,"#f9fafb"],[0.55,"#f0fdf4"],[1,"#16a34a"]],
-                    zmid=0, zmin=-1, zmax=1,
-                    text=tv, texttemplate="%{text}", textfont=dict(size=9.5, color="#111"),
-                    hovertemplate="<b>%{y}</b> vs <b>%{x}</b>: %{z:.3f}<extra></extra>",
-                    colorbar=dict(title=dict(text="r", side="right"), thickness=12, len=0.72,
-                                  tickvals=[-1,-0.5,0,0.5,1], tickfont=dict(size=9)),
-                    xgap=2, ygap=2,
-                ))
-                # Separator line above the Rollex row (paper x, category y)
-                rollex_idx = labels.index("Rollex %Δ")
-                fig_pw.add_shape(type="line", xref="paper", yref="y",
-                    x0=0, x1=1,
-                    y0=rollex_idx - 0.52, y1=rollex_idx - 0.52,
-                    line=dict(color="#374151", width=1.8, dash="dot"))
-                fig_pw.update_layout(**_BASE,
-                    height=max(340, cell_h * n + 140),
-                    margin=dict(l=170, r=60, t=130, b=24),
-                    xaxis=dict(side="top", tickangle=-40, tickfont=dict(size=9),
-                               showgrid=False, showline=False, zeroline=False),
-                    yaxis=dict(autorange="reversed", tickfont=dict(size=9),
-                               tickvals=labels, ticktext=tick_y,
-                               showgrid=False, showline=False, zeroline=False),
-                )
-                st.plotly_chart(fig_pw, width='stretch')
-            else:
-                st.info("Not enough overlapping data for pairwise correlation.")
-
-        # Best metric by forward corr
         best_metric = corr_df["→ ΔPx% fwd"].abs().idxmax() if "→ ΔPx% fwd" in corr_df.columns else list(metrics.keys())[0]
     else:
         best_metric = list(metrics.keys())[0]
