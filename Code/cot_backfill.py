@@ -41,6 +41,7 @@ import icepython as ice
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 CODE_DIR         = Path(__file__).parent
 DB_DIR           = CODE_DIR.parent / "Database"
@@ -66,6 +67,7 @@ DISAGG_COMMODITIES = {
     "CT":  {"comb_sym": "CT #COMB-CFTC",     "fut_sym": "CT #FUT-CFTC",     "px_sym": "%CT 1!"},
     "RC":  {"comb_sym": "RC.ICE #COMB-CFTC", "fut_sym": "RC.ICE #FUT-CFTC", "px_sym": "%RC 1!-ICE"},
     "LCC": {"comb_sym": "C.ICE #COMB-CFTC",  "fut_sym": "C.ICE #FUT-CFTC",  "px_sym": "%C 1!-ICE"},
+    "LSU": {"comb_sym": "W.ICE #COMB-CFTC",  "fut_sym": "W.ICE #FUT-CFTC",  "px_sym": "%W 1!-ICE"},
 }
 
 # ── CIT fields ────────────────────────────────────────────────────────────────
@@ -287,7 +289,7 @@ def upsert(db_path, new_data, fetch_start, key_cols):
 def incremental_start(db_path):
     existing = pd.read_parquet(db_path, columns=["Date"])
     latest = pd.to_datetime(existing["Date"]).max()
-    return (latest - pd.Timedelta(days=30)).strftime("%Y-%m-%d")
+    return (latest - pd.Timedelta(days=14)).strftime("%Y-%m-%d")
 
 
 def add_pct_oi(df, pos_cols):
@@ -418,16 +420,21 @@ if __name__ == "__main__":
         return s, f"INCREMENTAL from {s}"
 
 
+    MAX_WORKERS = 3
+
     # ── CIT ───────────────────────────────────────────────────────────────────────
     if run_cit:
         fetch_start, mode = _get_start(CIT_PATH, ["Commodity"])
         print(f"\nCIT | {mode}\n")
 
         all_cit = []
-        for comm, cfg in CIT_COMMODITIES.items():
-            df = build_cit(comm, cfg, fetch_start, END_DATE)
-            if df is not None:
-                all_cit.append(df)
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+            futures = {pool.submit(build_cit, comm, cfg, fetch_start, END_DATE): comm
+                       for comm, cfg in CIT_COMMODITIES.items()}
+            for f in as_completed(futures):
+                df = f.result()
+                if df is not None:
+                    all_cit.append(df)
 
         if all_cit:
             final = upsert(CIT_PATH, pd.concat(all_cit, ignore_index=True),
@@ -444,10 +451,13 @@ if __name__ == "__main__":
         print(f"\nDISAGG FutOpt | {mode}\n")
 
         all_fo = []
-        for comm, cfg in DISAGG_COMMODITIES.items():
-            df = build_disagg(comm, cfg, "FutOpt", fetch_start, END_DATE)
-            if df is not None:
-                all_fo.append(df)
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+            futures = {pool.submit(build_disagg, comm, cfg, "FutOpt", fetch_start, END_DATE): comm
+                       for comm, cfg in DISAGG_COMMODITIES.items()}
+            for f in as_completed(futures):
+                df = f.result()
+                if df is not None:
+                    all_fo.append(df)
 
         if all_fo:
             final = upsert(DISAGG_FUTOPT_PATH, pd.concat(all_fo, ignore_index=True),
@@ -464,10 +474,13 @@ if __name__ == "__main__":
         print(f"\nDISAGG Fut | {mode}\n")
 
         all_fut = []
-        for comm, cfg in DISAGG_COMMODITIES.items():
-            df = build_disagg(comm, cfg, "Fut", fetch_start, END_DATE)
-            if df is not None:
-                all_fut.append(df)
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+            futures = {pool.submit(build_disagg, comm, cfg, "Fut", fetch_start, END_DATE): comm
+                       for comm, cfg in DISAGG_COMMODITIES.items()}
+            for f in as_completed(futures):
+                df = f.result()
+                if df is not None:
+                    all_fut.append(df)
 
         if all_fut:
             final = upsert(DISAGG_FUT_PATH, pd.concat(all_fut, ignore_index=True),
