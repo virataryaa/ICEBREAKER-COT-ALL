@@ -2598,30 +2598,42 @@ def render_combined(commodity, start_date, end_date, color):
         return d[col].astype(float) if col in d.columns else pd.Series(0., index=d.index)
 
     # ── Spec extraction ───────────────────────────────────────────────────────
-    # CIT leg: Large Spec + Non-Rep
+    # CIT leg: Large Spec + Non-Rep + extra columns for charts tab
     a = pd.DataFrame({
-        "Date":  pd.to_datetime(cit["Date"]),
-        "Long":  (gc(cit,"Spec Long")  + gc(cit,"Non Rep Long"))  / 1000,
-        "Short": (gc(cit,"Spec Short") + gc(cit,"Non Rep Short")) / 1000,
-        "Net":   (gc(cit,"Spec Net")   + gc(cit,"Non Rep Net"))   / 1000,
-        "Px":    cit["Px"].values if "Px" in cit.columns else np.nan,
+        "Date":   pd.to_datetime(cit["Date"]),
+        "Long":   (gc(cit,"Spec Long")  + gc(cit,"Non Rep Long"))  / 1000,
+        "Short":  (gc(cit,"Spec Short") + gc(cit,"Non Rep Short")) / 1000,
+        "Net":    (gc(cit,"Spec Net")   + gc(cit,"Non Rep Net"))   / 1000,
+        "IdxNet": gc(cit,"Index Net")   / 1000,
+        "CommL":  gc(cit,"Comm Long")   / 1000,
+        "CommS":  gc(cit,"Comm Short")  / 1000,
+        "OI":     gc(cit,"Total OI")    / 1000,
+        "Px":     cit["Px"].values if "Px" in cit.columns else np.nan,
     })
-    # Disagg leg: MM + Other + Non-Rep
+    # Disagg leg: MM + Other + Non-Rep + extra columns for charts tab
     b = pd.DataFrame({
-        "Date":  pd.to_datetime(dag["Date"]),
-        "Long":  (gc(dag,"MM Long")  + gc(dag,"Other Long")  + gc(dag,"Non Rep Long"))  / 1000,
-        "Short": (gc(dag,"MM Short") + gc(dag,"Other Short") + gc(dag,"Non Rep Short")) / 1000,
-        "Net":   (gc(dag,"MM Net")   + gc(dag,"Other Net")   + gc(dag,"Non Rep Net"))   / 1000,
-        "Px":    dag["Px"].values if "Px" in dag.columns else np.nan,
+        "Date":   pd.to_datetime(dag["Date"]),
+        "Long":   (gc(dag,"MM Long")  + gc(dag,"Other Long")  + gc(dag,"Non Rep Long"))  / 1000,
+        "Short":  (gc(dag,"MM Short") + gc(dag,"Other Short") + gc(dag,"Non Rep Short")) / 1000,
+        "Net":    (gc(dag,"MM Net")   + gc(dag,"Other Net")   + gc(dag,"Non Rep Net"))   / 1000,
+        "CommL":  gc(dag,"Producer Long")  / 1000,
+        "CommS":  gc(dag,"Producer Short") / 1000,
+        "OI":     gc(dag,"Total OI")       / 1000,
+        "Px":     dag["Px"].values if "Px" in dag.columns else np.nan,
     })
 
     merged = pd.merge(a, b, on="Date", suffixes=("_a","_b"), how="inner").sort_values("Date").reset_index(drop=True)
     if merged.empty:
         st.warning("No overlapping dates between the two legs."); return
 
-    merged["Comb Long"]  = merged["Long_a"]  + merged["Long_b"]
-    merged["Comb Short"] = merged["Short_a"] + merged["Short_b"]
-    merged["Comb Net"]   = merged["Net_a"]   + merged["Net_b"]
+    merged["Comb Long"]     = merged["Long_a"]  + merged["Long_b"]
+    merged["Comb Short"]    = merged["Short_a"] + merged["Short_b"]
+    merged["Comb Net"]      = merged["Net_a"]   + merged["Net_b"]
+    merged["Comb OI"]       = merged["OI_a"]    + merged["OI_b"]
+    merged["Comb Net+Idx"]  = merged["Comb Net"] + merged["IdxNet_a"].fillna(0)
+    merged["Rel Spec"]      = merged["Net_a"]   - merged["Net_b"]
+    merged["Comb CommL"]    = merged["CommL_a"] + merged["CommL_b"]
+    merged["Comb CommS"]    = merged["CommS_a"] + merged["CommS_b"]
 
     # ── Header ────────────────────────────────────────────────────────────────
     st.markdown(
@@ -2637,7 +2649,7 @@ def render_combined(commodity, start_date, end_date, color):
 
 
     # ── Tabs ──────────────────────────────────────────────────────────────────
-    c_tabs = st.tabs(["Recap", "Combined Net", "Gross Legs", "Weekly Flow"])
+    c_tabs = st.tabs(["Recap", "Recap (Charts)", "Combined Net", "Gross Legs", "Weekly Flow"])
 
     # ── Tab 0: Recap ──────────────────────────────────────────────────────────
     with c_tabs[0]:
@@ -2705,8 +2717,90 @@ def render_combined(commodity, start_date, end_date, color):
                     unsafe_allow_html=True)
                 st.markdown(_recap_html(chg_stats, signed=True, z_rows={"Z-Score Δ"}), unsafe_allow_html=True)
 
-    # ── Tab 1: Combined Net ───────────────────────────────────────────────────
+    # ── Tab 1: Recap (Charts) ─────────────────────────────────────────────────
     with c_tabs[1]:
+        r_c, g_c, b_c2 = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
+
+        def _cline(title, traces, height=360):
+            fig = go.Figure()
+            for name, y, clr, dash, width, fill, yax in traces:
+                kw = dict(line=dict(color=clr, width=width, dash=dash))
+                if fill:
+                    kw["fill"] = "tozeroy"
+                    kw["fillcolor"] = f"rgba({int(clr[1:3],16)},{int(clr[3:5],16)},{int(clr[5:7],16)},0.09)"
+                if yax == "y2":
+                    kw["yaxis"] = "y2"
+                fig.add_trace(go.Scatter(x=merged["Date"], y=y, name=name,
+                    hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{name}: %{{y:.1f}}<extra></extra>", **kw))
+            fig.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.15)")
+            fig.update_layout(**_BASE, height=height,
+                title=dict(text=title, font=dict(size=11, color="#374151"), x=0),
+                margin=dict(l=52, r=60, t=40, b=72),
+                legend=dict(orientation="h", y=-0.22, x=0.5, xanchor="center",
+                            font_size=10, bgcolor="rgba(0,0,0,0)"),
+                xaxis=dict(**_ax(x=True), tickformat="%b '%y"),
+                yaxis=dict(**_ax(), title_text="k lots", title_font_size=10),
+                yaxis2={**_ax(), "title_text": "Price", "title_font_size": 10,
+                        "overlaying": "y", "side": "right", "showgrid": False})
+            st.plotly_chart(fig, width='stretch')
+
+        # 1. Combined OI
+        _cline(
+            f"{COMM_NAMES[commodity]}  ·  Combined Open Interest  ·  k lots",
+            [
+                (f"{comm_a} OI",   merged["OI_a"],    color_a, "dot",  1.6, False, "y"),
+                (f"{comm_b} OI",   merged["OI_b"],    color_b, "dot",  1.6, False, "y"),
+                ("Combined OI",    merged["Comb OI"], color,   "solid",2.4, True,  "y"),
+            ])
+
+        # 2. Combined Net Specs
+        _cline(
+            f"{COMM_NAMES[commodity]}  ·  Combined Net Specs  ·  k lots",
+            [
+                (f"{comm_a} Net",  merged["Net_a"],    color_a, "dot",  1.6, False, "y"),
+                (f"{comm_b} Net",  merged["Net_b"],    color_b, "dot",  1.6, False, "y"),
+                ("Combined Net",   merged["Comb Net"], color,   "solid",2.4, True,  "y"),
+            ])
+
+        # 3. Combined Net + Index
+        _cline(
+            f"{COMM_NAMES[commodity]}  ·  Combined Net + Index  ·  k lots",
+            [
+                ("Combined Net",        merged["Comb Net"],     color,     "dot",  1.8, False, "y"),
+                ("Combined Net + Index", merged["Comb Net+Idx"], "#f59e0b", "solid",2.4, True,  "y"),
+            ])
+
+        # 4. Relative Spec: CIT Net minus Disagg Net (bar)
+        rel = merged["Rel Spec"]
+        fig_rel = go.Figure()
+        fig_rel.add_trace(go.Bar(
+            x=merged["Date"], y=rel,
+            marker=dict(color=[color_a if v >= 0 else color_b for v in rel],
+                        opacity=0.75, line=dict(width=0)),
+            hovertemplate="<b>%{x|%b %Y}</b><br>CIT − Disagg Net: %{y:+.1f}k<extra></extra>",
+            name=f"{comm_a} CIT − {comm_b} Disagg"))
+        fig_rel.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.2)")
+        fig_rel.update_layout(**_BASE, height=300,
+            title=dict(text=f"{COMM_NAMES[commodity]}  ·  Relative Spec  ·  CIT Net − Disagg Net  ·  k lots",
+                       font=dict(size=11, color="#374151"), x=0),
+            margin=dict(l=52, r=12, t=40, b=60), showlegend=True,
+            legend=dict(orientation="h", y=-0.22, x=0.5, xanchor="center",
+                        font_size=10, bgcolor="rgba(0,0,0,0)"),
+            xaxis=dict(**_ax(x=True), tickformat="%b '%y"),
+            yaxis=dict(**_ax(), title_text="k lots", title_font_size=10))
+        st.plotly_chart(fig_rel, width='stretch')
+
+        # 5. Combined Gross Commercial Legs
+        _cline(
+            f"{COMM_NAMES[commodity]}  ·  Combined Gross Commercial Legs  ·  k lots"
+            f"  ({comm_a} Comm + {comm_b} Producer)",
+            [
+                ("Combined Comm Long",  merged["Comb CommL"], C_LONG,  "solid", 2.2, False, "y"),
+                ("Combined Comm Short", merged["Comb CommS"], C_SHORT, "solid", 2.2, False, "y"),
+            ])
+
+    # ── Tab 2: Combined Net ───────────────────────────────────────────────────
+    with c_tabs[2]:
         r, g, b_c = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=merged["Date"], y=merged["Net_a"], name=f"{comm_a} Spec Net",
@@ -2747,8 +2841,8 @@ def render_combined(commodity, start_date, end_date, color):
             yaxis=dict(**_ax(),title_text="Δ k lots",title_font_size=10))
         st.plotly_chart(fig2, width='stretch')
 
-    # ── Tab 2: Gross Legs ────────────────────────────────────────────────────
-    with c_tabs[2]:
+    # ── Tab 3: Gross Legs ────────────────────────────────────────────────────
+    with c_tabs[3]:
         col1, col2 = st.columns(2)
         for ch, (comm, sfx, clr, leg_lbl) in zip([col1, col2], [
             (comm_a, "_a", color_a, f"Large+Small (CIT)"),
@@ -2775,8 +2869,8 @@ def render_combined(commodity, start_date, end_date, color):
                     yaxis=dict(**_ax(),title_text="k lots",title_font_size=10))
                 st.plotly_chart(fig, width='stretch')
 
-    # ── Tab 3: Weekly Flow ────────────────────────────────────────────────────
-    with c_tabs[3]:
+    # ── Tab 4: Weekly Flow ────────────────────────────────────────────────────
+    with c_tabs[4]:
         wf1, wf2, wf3 = st.columns(3)
         for ch, (col, title) in zip([wf1,wf2,wf3],[
             ("Net_a",   f"{comm_a} Net Δ"),
