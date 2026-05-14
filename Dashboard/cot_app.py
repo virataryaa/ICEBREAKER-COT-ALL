@@ -2250,9 +2250,9 @@ def render_analysis(d, report, color, commodity="KC"):
             # Regression stats
             f"<div style='{_card}'>"
             f"<div style='{_lbl}'>REGRESSION</div>"
-            f"<div style='font-size:.82rem;font-weight:600;color:#374151'>"
-            f"β = {beta:+.2f}k / 1%</div>"
-            f"<div style='font-size:.75rem;color:#64748b'>R² = {r2:.2f} · n={len(x_hist)}</div></div>"
+            f"<div style='font-size:.82rem;font-weight:700;color:#374151'>"
+            f"R² = {r2:.2f} · n={len(x_hist)}</div>"
+            f"<div style='font-size:.75rem;color:#64748b'>β = {beta:+.2f}k / 1%</div></div>"
             # Implied Δ — hero card
             f"<div style='flex:1.5;min-width:130px;background:{_bg_chg}10;"
             f"border:1px solid {_bg_chg}40;border-left:4px solid {_bg_chg};"
