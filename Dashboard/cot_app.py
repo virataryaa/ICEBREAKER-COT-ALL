@@ -27,15 +27,11 @@ st.markdown("""
   div[data-testid="stExpander"] {
     border:1px solid #e0e4ed !important; border-radius:7px !important;
   }
-  div[data-testid="stTabs"] button {
-    font-size:0.81rem !important; font-weight:500;
+  div[data-testid="stTabs"] button { font-size:0.81rem !important; font-weight:500; }
+  div[data-testid="stTabs"] button:nth-child(10),
+  div[data-testid="stTabs"] button:nth-child(11) {
     background-color:#f3f4f6 !important;
     border-radius:6px 6px 0 0 !important;
-    margin-right:2px !important;
-  }
-  div[data-testid="stTabs"] button[aria-selected="true"] {
-    background-color:#e5e7eb !important;
-    font-weight:600 !important;
   }
   hr { border:none !important; border-top:1px solid #e8e8ed !important; margin:.5rem 0 !important; }
   [data-testid="stRadio"] label { font-size:.82rem !important; }
@@ -3866,7 +3862,7 @@ def _na(msg):
 tabs = st.tabs([
     "Recap", "Recap (Charts)", "Spec", "Commercial",
     "Spreading", "Old / New", "Concentration",
-    "CIT vs Disagg", "Pairs", "Spec VaR", "Spec Prediction & Correlation",
+    "CIT vs Disagg", "Pairs", "Specs in VaR", "Spec Prediction & Correlation",
 ])
 
 with tabs[0]:  _tab_recap(df, report, color, commodity, is_options)
