@@ -2147,6 +2147,39 @@ def render_analysis(d, report, color, commodity="KC"):
         )
         st.plotly_chart(fig_heat, width='stretch')
 
+        # ── Pairwise COT correlation (weekly Δ) ──────────────────────────────
+        with st.expander("Pairwise COT Correlation  ·  weekly Δ  (all elements + Rollex)", expanded=False):
+            pw_series = {name: s.diff() for name, s in metrics.items()}
+            pw_series["Rollex %Δ"] = px_chg
+            pw_df = pd.DataFrame(pw_series).dropna(how="all")
+            if len(pw_df) >= 4:
+                pw_corr = pw_df.corr()
+                np.fill_diagonal(pw_corr.values, np.nan)   # blank diagonal — exclude from colour scale
+                labels = list(pw_corr.columns)
+                tick_text = [f"<b>{l}</b>" if l == "Rollex %Δ" else l for l in labels]
+                zv = pw_corr.values.tolist()
+                tv = [[f"{v:+.2f}" if pd.notna(v) else "" for v in row] for row in zv]
+                fig_pw = go.Figure(go.Heatmap(
+                    z=zv, x=labels, y=labels,
+                    colorscale=[[0,"#dc2626"],[0.45,"#fef2f2"],[0.5,"#f9fafb"],[0.55,"#f0fdf4"],[1,"#16a34a"]],
+                    zmid=0, zmin=-1, zmax=1,
+                    text=tv, texttemplate="%{text}", textfont=dict(size=9, color="#111"),
+                    hovertemplate="<b>%{y}</b> vs <b>%{x}</b>: %{z:.3f}<extra></extra>",
+                    colorbar=dict(title="r", thickness=10, len=0.8, tickfont=dict(size=9)),
+                ))
+                n = len(labels)
+                fig_pw.update_layout(**_BASE,
+                    height=max(320, 28 * n + 110),
+                    margin=dict(l=160, r=50, t=110, b=160),
+                    xaxis=dict(side="top", tickangle=-45, tickfont=dict(size=9),
+                               tickvals=labels, ticktext=tick_text),
+                    yaxis=dict(autorange="reversed", tickfont=dict(size=9),
+                               tickvals=labels, ticktext=tick_text),
+                )
+                st.plotly_chart(fig_pw, width='stretch')
+            else:
+                st.info("Not enough overlapping data for pairwise correlation.")
+
         # Best metric by forward corr
         best_metric = corr_df["→ ΔPx% fwd"].abs().idxmax() if "→ ΔPx% fwd" in corr_df.columns else list(metrics.keys())[0]
     else:
