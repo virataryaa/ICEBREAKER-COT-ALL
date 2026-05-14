@@ -2077,7 +2077,7 @@ def render_analysis(d, report, color, commodity="KC"):
             "Comm Net":        gc("Comm Net") / 1000,
             "Non-Rep Net":     gc("Non Rep Net") / 1000,
             "Large+Small Net": (gc("Spec Net") + gc("Non Rep Net")) / 1000,
-            "Lrg+Sml+Idx Net": (gc("Spec Net") + gc("Non Rep Net") + gc("Index Net")) / 1000,
+            "Large+Small+Index Net": (gc("Spec Net") + gc("Non Rep Net") + gc("Index Net")) / 1000,
             "Spec Long":       gc("Spec Long") / 1000,
             "Spec Short":      gc("Spec Short") / 1000,
             "Index Long":      gc("Index Long") / 1000,
@@ -2092,7 +2092,7 @@ def render_analysis(d, report, color, commodity="KC"):
             "Non-Rep Net":      gc("Non Rep Net") / 1000,
             "Swap Net":         gc("Swap Net") / 1000,
             "Comm Net":         gc("Comm Net") / 1000,
-            "Spec ex Swap Net": (gc("MM Net") + gc("Other Net") + gc("Non Rep Net")) / 1000,
+            "MM + Non Rep + Others": (gc("MM Net") + gc("Other Net") + gc("Non Rep Net")) / 1000,
             "MM+Other Net":     (gc("MM Net") + gc("Other Net")) / 1000,
             "MM Long":          gc("MM Long") / 1000,
             "MM Short":         gc("MM Short") / 1000,
@@ -2106,7 +2106,174 @@ def render_analysis(d, report, color, commodity="KC"):
     px_chg = px.pct_change() * 100
     px_fwd = px_chg.shift(-1)
 
-    # ── Section 1: Pairwise COT Correlation ──────────────────────────────────
+    # ── Section 1: COT Elements Prediction (fragment — isolated from full rerun) ──
+    _reg_default = "Large+Small+Index Net" if report == "CIT" else "MM + Non Rep + Others"
+
+    @st.fragment
+    def _reg_frag(metrics_f, px_f, px_chg_f, color_f, commodity_f, best_metric_f, last_date_f):
+        st.markdown("""<style>
+        div[data-testid="stSelectbox"] > div > div[data-baseweb="select"] > div {
+            border-color: #d1d5db !important; border-radius: 7px !important;
+        }
+        </style>""", unsafe_allow_html=True)
+
+        st.markdown("<div style='font-size:.88rem;font-weight:700;color:#374151;"
+                    "margin:0 0 10px;letter-spacing:.02em'>COT ELEMENTS PREDICTION AGAINST THE LATEST ROLLEX MOVE</div>",
+                    unsafe_allow_html=True)
+
+        metric_keys = list(metrics_f.keys())
+        default_idx = metric_keys.index(best_metric_f) if best_metric_f in metric_keys else 0
+
+        col_m, col_w = st.columns([3, 1])
+        with col_m:
+            sel = st.selectbox("Metric", metric_keys, index=default_idx, key="anal_col_v2",
+                               help="Pre-selected = highest |correlation| with Rollex weekly Δ")
+        with col_w:
+            lookback = st.select_slider(
+                "Training window",
+                options=["1Y", "2Y", "3Y", "5Y", "All"],
+                value="All",
+                key="reg_lookback",
+            )
+
+        n_weeks = {"1Y": 52, "2Y": 104, "3Y": 156, "5Y": 260}.get(lookback, None)
+
+        sel_series_full = metrics_f[sel].reset_index(drop=True)
+        px_r_full       = px_f.reset_index(drop=True)
+        px_chg_r_full   = px_chg_f.reset_index(drop=True)
+
+        # Windowed slice for regression fitting only
+        if n_weeks is not None:
+            px_chg_r_win   = px_chg_r_full.iloc[-n_weeks:]
+            sel_series_win = sel_series_full.iloc[-n_weeks:]
+        else:
+            px_chg_r_win   = px_chg_r_full
+            sel_series_win = sel_series_full
+
+        ds_r   = sel_series_win.diff()
+        common = ~(px_chg_r_win.isna() | ds_r.isna())
+        x_hist = px_chg_r_win[common].values.astype(float)
+        y_hist = ds_r[common].values.astype(float)
+
+        if len(x_hist) < 10:
+            st.info(f"Not enough data for regression ({len(x_hist)} obs — need ≥ 10). Widen the training window.")
+        else:
+            beta, alpha = np.polyfit(x_hist, y_hist, 1)
+            y_hat  = beta * x_hist + alpha
+            ss_res = np.sum((y_hist - y_hat) ** 2)
+            ss_tot = np.sum((y_hist - y_hist.mean()) ** 2)
+            r2     = 1 - ss_res / ss_tot if ss_tot > 0 else 0
+            x_line = np.linspace(x_hist.min(), x_hist.max(), 200)
+            y_line = beta * x_line + alpha
+
+            # KPI values always from full series — window only affects β / R²
+            last_cot_date = pd.to_datetime(last_date_f)
+            last_cot_px   = float(px_r_full.iloc[-1])
+            last_cot_spec = float(sel_series_full.iloc[-1])
+            rp = ROLLEX_DIR / ROLLEX_MAP.get(commodity_f, f"rollex_{commodity_f}.parquet")
+            latest_px, latest_date = last_cot_px, last_cot_date
+            if rp.exists():
+                try:
+                    rx = pd.read_parquet(rp, columns=["rollex_px"])
+                    if not rx.empty:
+                        latest_px   = float(rx["rollex_px"].iloc[-1])
+                        latest_date = rx.index[-1]
+                except Exception:
+                    pass
+
+            px_move_abs = latest_px - last_cot_px
+            px_move_pct = px_move_abs / last_cot_px * 100 if last_cot_px != 0 else 0
+            implied_chg = beta * px_move_pct + alpha
+            implied_now = last_cot_spec + implied_chg
+            arrow_px    = "▲" if px_move_abs >= 0 else "▼"
+            arrow_sp    = "▲" if implied_chg >= 0 else "▼"
+            clr_px      = C_LONG if px_move_abs >= 0 else C_SHORT
+            _bg_chg     = "#16a34a" if implied_chg >= 0 else "#dc2626"
+
+            # ── KPI strip ─────────────────────────────────────────────────────
+            _card    = ("flex:1;min-width:110px;background:#f8fafc;border:1px solid #e2e8f0;"
+                        "border-radius:8px;padding:12px 14px")
+            _card_hi = ("flex:1;min-width:110px;background:#f0f9ff;border:1px solid #bae6fd;"
+                        "border-left:4px solid #0ea5e9;border-radius:8px;padding:12px 14px")
+            _lbl     = "font-size:.61rem;color:#94a3b8;font-weight:700;letter-spacing:.05em;margin-bottom:5px"
+            _lbl_hi  = "font-size:.61rem;color:#0ea5e9;font-weight:700;letter-spacing:.05em;margin-bottom:5px"
+            _val     = "font-size:.9rem;font-weight:700;color:#1e293b"
+            _val_hi  = "font-size:.9rem;font-weight:700;color:#0c4a6e"
+            st.markdown(
+                f"<div style='display:flex;gap:10px;margin:10px 0 18px;align-items:stretch'>"
+                # Last COT date
+                f"<div style='{_card}'>"
+                f"<div style='{_lbl}'>LAST COT DATE</div>"
+                f"<div style='{_val}'>{last_cot_date.strftime('%a %d %b %Y')}</div></div>"
+                # Rollex price at last COT
+                f"<div style='{_card}'>"
+                f"<div style='{_lbl}'>ROLLEX PRICE"
+                f"<span style='font-weight:600;color:#64748b;font-size:.68rem'> · LAST COT</span></div>"
+                f"<div style='{_val}'>{last_cot_px:.2f}</div></div>"
+                # Latest Rollex price — highlighted
+                f"<div style='{_card_hi}'>"
+                f"<div style='{_lbl_hi}'>ROLLEX PRICE"
+                f"<span style='font-weight:600;color:#0369a1;font-size:.68rem'> · LATEST · {latest_date.strftime('%d %b')}</span></div>"
+                f"<div style='{_val_hi}'>{latest_px:.2f}</div></div>"
+                # Price move
+                f"<div style='{_card}'>"
+                f"<div style='{_lbl}'>PRICE MOVE</div>"
+                f"<div style='font-size:.9rem;font-weight:700;color:{clr_px}'>"
+                f"{arrow_px} {abs(px_move_abs):.2f} ({px_move_pct:+.1f}%)</div></div>"
+                # Regression stats
+                f"<div style='{_card}'>"
+                f"<div style='{_lbl}'>REGRESSION</div>"
+                f"<div style='font-size:.82rem;font-weight:700;color:#374151'>"
+                f"R² = {r2:.2f} · n={len(x_hist)}</div>"
+                f"<div style='font-size:.75rem;color:#64748b'>β = {beta:+.2f}k / 1%</div></div>"
+                # Implied Δ — hero card
+                f"<div style='flex:1.5;min-width:130px;background:{_bg_chg}10;"
+                f"border:1px solid {_bg_chg}40;border-left:4px solid {_bg_chg};"
+                f"border-radius:0 8px 8px 0;padding:12px 14px'>"
+                f"<div style='{_lbl}'>IMPLIED Δ {sel.upper()}  ·  THIS WEEK</div>"
+                f"<div style='font-size:1.35rem;font-weight:800;color:{_bg_chg};line-height:1.2'>"
+                f"{arrow_sp} {implied_chg:+.1f}k lots</div></div>"
+                # Implied net
+                f"<div style='{_card}'>"
+                f"<div style='{_lbl}'>IMPLIED CURRENT NET</div>"
+                f"<div style='{_val}'>{implied_now:+.1f}k lots</div>"
+                f"<div style='font-size:.66rem;color:#94a3b8;margin-top:4px'>"
+                f"{last_cot_spec:+.1f}k + ({implied_chg:+.1f}k)</div></div>"
+                f"</div>",
+                unsafe_allow_html=True)
+
+            # ── Full-width scatter ─────────────────────────────────────────────
+            win_label = f"  ·  {lookback} window" if lookback != "All" else ""
+            fig_reg = go.Figure()
+            fig_reg.add_trace(go.Scatter(x=x_hist, y=y_hist, mode="markers",
+                marker=dict(color=color_f, size=6, opacity=0.55, line=dict(width=0.4, color="white")),
+                hovertemplate="ΔPx%: %{x:.1f}%<br>Δ" + sel + ": %{y:.1f}k<extra></extra>",
+                showlegend=False))
+            fig_reg.add_trace(go.Scatter(x=x_line, y=y_line, mode="lines",
+                line=dict(color=color_f, width=2, dash="dash"), showlegend=False))
+            fig_reg.add_annotation(x=0.02, y=0.98, xref="paper", yref="paper",
+                text=f"R² = {r2:.3f}  |  n = {len(x_hist)} obs{win_label}",
+                showarrow=False, font=dict(size=10.5, color="#374151"),
+                bgcolor="rgba(255,255,255,0.9)", borderpad=5,
+                xanchor="left", yanchor="top",
+                bordercolor="#e2e8f0", borderwidth=1)
+            fig_reg.update_layout(**_BASE, height=420,
+                title=dict(text=f"Δ{sel}  vs  ΔPx% 1w  ·  weekly changes",
+                           font=dict(size=11, color="#374151"), x=0),
+                margin=dict(l=60, r=24, t=48, b=56),
+                xaxis=dict(**_ax(x=True), title_text="Price Δ% 1w", ticksuffix="%"),
+                yaxis=dict(**_ax(), title_text=f"Δ{sel} (k lots)"))
+            st.plotly_chart(fig_reg, width='stretch')
+            st.markdown(
+                f"<p style='font-size:.68rem;color:#94a3b8;margin:0 0 4px'>"
+                f"Δ{sel} = {beta:+.2f} × ΔPx% + {alpha:+.2f}  ·  fitted on {len(x_hist)} weekly obs.</p>",
+                unsafe_allow_html=True)
+
+    _reg_frag(metrics, px, px_chg, color, commodity, _reg_default, d.iloc[-1]["Date"])
+
+    st.markdown("---")
+
+    # ── Section 2: Pairwise COT Correlation ──────────────────────────────────
     st.markdown("<div style='font-size:.88rem;font-weight:700;color:#374151;"
                 "margin:0 0 8px;letter-spacing:.02em'>PAIRWISE COT CORRELATION  ·  weekly Δ</div>",
                 unsafe_allow_html=True)
@@ -2114,14 +2281,8 @@ def render_analysis(d, report, color, commodity="KC"):
     pw_series = {name: s.diff() for name, s in metrics.items()}
     pw_series["Rollex %Δ"] = px_chg
     pw_df = pd.DataFrame(pw_series).dropna(how="all")
-    best_metric = list(metrics.keys())[0]   # default
     if len(pw_df) >= 4:
         pw_corr = pw_df.corr()
-        # pick best metric = highest |corr| with Rollex weekly Δ
-        if "Rollex %Δ" in pw_corr.columns:
-            rollex_corr = pw_corr["Rollex %Δ"].drop("Rollex %Δ", errors="ignore").dropna().abs()
-            if not rollex_corr.empty:
-                best_metric = rollex_corr.idxmax()
         np.fill_diagonal(pw_corr.values, np.nan)
         labels = list(pw_corr.columns)
         n      = len(labels)
@@ -2159,142 +2320,6 @@ def render_analysis(d, report, color, commodity="KC"):
         st.plotly_chart(fig_pw, width='stretch')
     else:
         st.info("Not enough overlapping data for pairwise correlation.")
-
-    st.markdown("---")
-
-    # ── Section 2: Regression + Implied Positioning ───────────────────────────
-    st.markdown("""<style>
-    div[data-testid="stSelectbox"] > div > div[data-baseweb="select"] > div {
-        border-color: #d1d5db !important; border-radius: 7px !important;
-    }
-    </style>""", unsafe_allow_html=True)
-
-    st.markdown("<div style='font-size:.88rem;font-weight:700;color:#374151;"
-                "margin:0 0 10px;letter-spacing:.02em'>REGRESSION &amp; IMPLIED POSITIONING</div>",
-                unsafe_allow_html=True)
-
-    metric_keys = list(metrics.keys())
-    default_idx = metric_keys.index(best_metric) if best_metric in metric_keys else 0
-    sel = st.selectbox("Metric", metric_keys, index=default_idx, key="anal_col_v2",
-                       help="Pre-selected = highest |correlation| with Rollex weekly Δ")
-
-    sel_series = metrics[sel].reset_index(drop=True)
-    px_r     = px.reset_index(drop=True)
-    px_chg_r = px_chg.reset_index(drop=True)
-
-    ds_r   = sel_series.diff()
-    common = ~(px_chg_r.isna() | ds_r.isna())
-    x_hist = px_chg_r[common].values.astype(float)
-    y_hist = ds_r[common].values.astype(float)
-
-    if len(x_hist) < 10:
-        st.info(f"Not enough data for regression ({len(x_hist)} obs — need ≥ 10). Extend the date range.")
-    else:
-        beta, alpha = np.polyfit(x_hist, y_hist, 1)
-        y_hat  = beta * x_hist + alpha
-        ss_res = np.sum((y_hist - y_hat) ** 2)
-        ss_tot = np.sum((y_hist - y_hist.mean()) ** 2)
-        r2     = 1 - ss_res / ss_tot if ss_tot > 0 else 0
-        x_line = np.linspace(x_hist.min(), x_hist.max(), 200)
-        y_line = beta * x_line + alpha
-
-        # ── Load Rollex latest price ───────────────────────────────────────────
-        last_cot_date = pd.to_datetime(d.iloc[-1]["Date"])
-        last_cot_px   = float(px_r.iloc[-1])
-        last_cot_spec = float(sel_series.iloc[-1])
-        rp = ROLLEX_DIR / ROLLEX_MAP.get(commodity, f"rollex_{commodity}.parquet")
-        latest_px, latest_date = last_cot_px, last_cot_date
-        if rp.exists():
-            try:
-                rx = pd.read_parquet(rp, columns=["rollex_px"])
-                if not rx.empty:
-                    latest_px   = float(rx["rollex_px"].iloc[-1])
-                    latest_date = rx.index[-1]
-            except Exception:
-                pass
-
-        px_move_abs = latest_px - last_cot_px
-        px_move_pct = px_move_abs / last_cot_px * 100 if last_cot_px != 0 else 0
-        implied_chg = beta * px_move_pct + alpha
-        implied_now = last_cot_spec + implied_chg
-        arrow_px    = "▲" if px_move_abs >= 0 else "▼"
-        arrow_sp    = "▲" if implied_chg >= 0 else "▼"
-        clr_px      = C_LONG if px_move_abs >= 0 else C_SHORT
-        _bg_chg     = "#16a34a" if implied_chg >= 0 else "#dc2626"
-
-        # ── KPI strip ─────────────────────────────────────────────────────────
-        _card = ("flex:1;min-width:110px;background:#f8fafc;border:1px solid #e2e8f0;"
-                 "border-radius:8px;padding:12px 14px")
-        _lbl  = "font-size:.61rem;color:#94a3b8;font-weight:700;letter-spacing:.05em;margin-bottom:5px"
-        _val  = "font-size:.9rem;font-weight:700;color:#1e293b"
-        st.markdown(
-            f"<div style='display:flex;gap:10px;margin:10px 0 18px;align-items:stretch'>"
-            # Last COT date
-            f"<div style='{_card}'>"
-            f"<div style='{_lbl}'>LAST COT DATE</div>"
-            f"<div style='{_val}'>{last_cot_date.strftime('%a %d %b %Y')}</div></div>"
-            # COT price
-            f"<div style='{_card}'>"
-            f"<div style='{_lbl}'>ROLLEX PRICE"
-            f"<span style='font-weight:600;color:#64748b;font-size:.68rem'> · LAST COT</span></div>"
-            f"<div style='{_val}'>{last_cot_px:.2f}</div></div>"
-            # Latest price
-            f"<div style='{_card}'>"
-            f"<div style='{_lbl}'>ROLLEX PRICE"
-            f"<span style='font-weight:600;color:#64748b;font-size:.68rem'> · LATEST · {latest_date.strftime('%d %b')}</span></div>"
-            f"<div style='{_val}'>{latest_px:.2f}</div></div>"
-            # Price move
-            f"<div style='{_card}'>"
-            f"<div style='{_lbl}'>PRICE MOVE</div>"
-            f"<div style='font-size:.9rem;font-weight:700;color:{clr_px}'>"
-            f"{arrow_px} {abs(px_move_abs):.2f} ({px_move_pct:+.1f}%)</div></div>"
-            # Regression stats
-            f"<div style='{_card}'>"
-            f"<div style='{_lbl}'>REGRESSION</div>"
-            f"<div style='font-size:.82rem;font-weight:700;color:#374151'>"
-            f"R² = {r2:.2f} · n={len(x_hist)}</div>"
-            f"<div style='font-size:.75rem;color:#64748b'>β = {beta:+.2f}k / 1%</div></div>"
-            # Implied Δ — hero card
-            f"<div style='flex:1.5;min-width:130px;background:{_bg_chg}10;"
-            f"border:1px solid {_bg_chg}40;border-left:4px solid {_bg_chg};"
-            f"border-radius:0 8px 8px 0;padding:12px 14px'>"
-            f"<div style='{_lbl}'>IMPLIED Δ {sel.upper()}  ·  THIS WEEK</div>"
-            f"<div style='font-size:1.35rem;font-weight:800;color:{_bg_chg};line-height:1.2'>"
-            f"{arrow_sp} {implied_chg:+.1f}k lots</div></div>"
-            # Implied net — plain grey card
-            f"<div style='{_card}'>"
-            f"<div style='{_lbl}'>IMPLIED CURRENT NET</div>"
-            f"<div style='{_val}'>{implied_now:+.1f}k lots</div>"
-            f"<div style='font-size:.66rem;color:#94a3b8;margin-top:4px'>"
-            f"{last_cot_spec:+.1f}k + ({implied_chg:+.1f}k)</div></div>"
-            f"</div>",
-            unsafe_allow_html=True)
-
-        # ── Full-width scatter ────────────────────────────────────────────────
-        fig_reg = go.Figure()
-        fig_reg.add_trace(go.Scatter(x=x_hist, y=y_hist, mode="markers",
-            marker=dict(color=color, size=6, opacity=0.55, line=dict(width=0.4, color="white")),
-            hovertemplate="ΔPx%: %{x:.1f}%<br>Δ" + sel + ": %{y:.1f}k<extra></extra>",
-            showlegend=False))
-        fig_reg.add_trace(go.Scatter(x=x_line, y=y_line, mode="lines",
-            line=dict(color=color, width=2, dash="dash"), showlegend=False))
-        fig_reg.add_annotation(x=0.02, y=0.98, xref="paper", yref="paper",
-            text=f"R² = {r2:.3f}  |  β = {beta:+.2f}k per 1%  |  n = {len(x_hist)} obs",
-            showarrow=False, font=dict(size=10.5, color="#374151"),
-            bgcolor="rgba(255,255,255,0.9)", borderpad=5,
-            xanchor="left", yanchor="top",
-            bordercolor="#e2e8f0", borderwidth=1)
-        fig_reg.update_layout(**_BASE, height=420,
-            title=dict(text=f"Δ{sel}  vs  ΔPx% 1w  ·  weekly changes",
-                       font=dict(size=11, color="#374151"), x=0),
-            margin=dict(l=60, r=24, t=48, b=56),
-            xaxis=dict(**_ax(x=True), title_text="Price Δ% 1w", ticksuffix="%"),
-            yaxis=dict(**_ax(), title_text=f"Δ{sel} (k lots)"))
-        st.plotly_chart(fig_reg, width='stretch')
-        st.markdown(
-            f"<p style='font-size:.68rem;color:#94a3b8;margin:0 0 4px'>"
-            f"Δ{sel} = {beta:+.2f} × ΔPx% + {alpha:+.2f}  ·  fitted on {len(x_hist)} weekly obs.</p>",
-            unsafe_allow_html=True)
 
     st.markdown("---")
 
