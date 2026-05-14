@@ -2634,19 +2634,7 @@ def render_combined(commodity, start_date, end_date, color):
         f"</div></div></div>", unsafe_allow_html=True)
     st.markdown("---")
 
-    # ── KPIs ──────────────────────────────────────────────────────────────────
-    latest = merged.iloc[-1]; prev = merged.iloc[-2] if len(merged) > 1 else merged.iloc[-1]
-    def _kchg(col):
-        v, p = latest[col], prev[col]
-        return f"{'▲' if v>p else '▼'}{abs(v-p):.1f}k" if pd.notna(v) and pd.notna(p) else ""
-    kpi_row([
-        (f"{comm_a} Net",    f"{latest['Net_a']:.1f}k",    _kchg("Net_a")),
-        (f"{comm_b} Net",    f"{latest['Net_b']:.1f}k",    _kchg("Net_b")),
-        ("Combined Net",     f"{latest['Comb Net']:.1f}k", _kchg("Comb Net")),
-        (f"{comm_a} Long",   f"{latest['Long_a']:.1f}k",   _kchg("Long_a")),
-        (f"{comm_b} Long",   f"{latest['Long_b']:.1f}k",   _kchg("Long_b")),
-        ("Combined Long",    f"{latest['Comb Long']:.1f}k",_kchg("Comb Long")),
-    ], color)
+
 
     # ── Tabs ──────────────────────────────────────────────────────────────────
     c_tabs = st.tabs(["Combined Net", "Gross Legs", "Weekly Flow", "Recap"])
