@@ -2235,7 +2235,7 @@ def render_analysis(d, report, color, commodity="KC"):
             # Latest price
             f"<div style='{_card}'>"
             f"<div style='{_lbl}'>LATEST PRICE"
-            f"<span style='font-weight:400;color:#cbd5e1'> · {latest_date.strftime('%d %b')}</span></div>"
+            f"<span style='font-weight:600;color:#64748b;font-size:.68rem'> · {latest_date.strftime('%d %b')}</span></div>"
             f"<div style='{_val}'>{latest_px:.2f}</div></div>"
             # Price move
             f"<div style='{_card}'>"
@@ -2255,13 +2255,11 @@ def render_analysis(d, report, color, commodity="KC"):
             f"<div style='{_lbl}'>IMPLIED Δ {sel.upper()}  ·  THIS WEEK</div>"
             f"<div style='font-size:1.35rem;font-weight:800;color:{_bg_chg};line-height:1.2'>"
             f"{arrow_sp} {implied_chg:+.1f}k lots</div></div>"
-            # Implied net — dark card
-            f"<div style='flex:1.5;min-width:130px;background:#1e293b;"
-            f"border-radius:8px;padding:12px 14px'>"
-            f"<div style='{_lbl.replace('#94a3b8','#475569')}'>IMPLIED CURRENT NET</div>"
-            f"<div style='font-size:1.35rem;font-weight:800;color:#f1f5f9;line-height:1.2'>"
-            f"{implied_now:+.1f}k lots</div>"
-            f"<div style='font-size:.66rem;color:#64748b;margin-top:4px'>"
+            # Implied net — plain grey card
+            f"<div style='{_card}'>"
+            f"<div style='{_lbl}'>IMPLIED CURRENT NET</div>"
+            f"<div style='{_val}'>{implied_now:+.1f}k lots</div>"
+            f"<div style='font-size:.66rem;color:#94a3b8;margin-top:4px'>"
             f"{last_cot_spec:+.1f}k + ({implied_chg:+.1f}k)</div></div>"
             f"</div>",
             unsafe_allow_html=True)
