@@ -2630,7 +2630,7 @@ def render_combined(commodity, start_date, end_date, color):
     merged["Comb Short"]    = merged["Short_a"] + merged["Short_b"]
     merged["Comb Net"]      = merged["Net_a"]   + merged["Net_b"]
     merged["Comb OI"]       = merged["OI_a"]    + merged["OI_b"]
-    merged["Comb Net+Idx"]  = merged["Comb Net"] + merged["IdxNet_a"].fillna(0)
+    merged["Comb Net+Idx"]  = merged["Comb Net"] + merged["IdxNet"].fillna(0)
     merged["Rel Spec"]      = merged["Net_a"]   - merged["Net_b"]
     merged["Comb CommL"]    = merged["CommL_a"] + merged["CommL_b"]
     merged["Comb CommS"]    = merged["CommS_a"] + merged["CommS_b"]
