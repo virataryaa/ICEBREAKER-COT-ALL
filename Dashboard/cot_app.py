@@ -27,7 +27,16 @@ st.markdown("""
   div[data-testid="stExpander"] {
     border:1px solid #e0e4ed !important; border-radius:7px !important;
   }
-  div[data-testid="stTabs"] button { font-size:0.81rem !important; font-weight:500; }
+  div[data-testid="stTabs"] button {
+    font-size:0.81rem !important; font-weight:500;
+    background-color:#f3f4f6 !important;
+    border-radius:6px 6px 0 0 !important;
+    margin-right:2px !important;
+  }
+  div[data-testid="stTabs"] button[aria-selected="true"] {
+    background-color:#e5e7eb !important;
+    font-weight:600 !important;
+  }
   hr { border:none !important; border-top:1px solid #e8e8ed !important; margin:.5rem 0 !important; }
   [data-testid="stRadio"] label { font-size:.82rem !important; }
 </style>""", unsafe_allow_html=True)
@@ -3857,7 +3866,7 @@ def _na(msg):
 tabs = st.tabs([
     "Recap", "Recap (Charts)", "Spec", "Commercial",
     "Spreading", "Old / New", "Concentration",
-    "Scatter & Correlation", "CIT vs Disagg", "Spec VaR", "Pairs",
+    "CIT vs Disagg", "Pairs", "Spec VaR", "Spec Prediction & Correlation",
 ])
 
 with tabs[0]:  _tab_recap(df, report, color, commodity, is_options)
@@ -3885,18 +3894,18 @@ with tabs[6]:  # Concentration
     else:
         _tab_concentration(df, color)
 
-with tabs[7]:  _tab_analysis(df, report, color, commodity)
-
-with tabs[8]:  # CIT vs Disagg
+with tabs[7]:  # CIT vs Disagg
     if commodity in CIT_COMMS and not is_options:
         _tab_comparison(commodity, start_date, end_date, color)
     else:
         _na("CIT vs Disagg comparison is only available for KC, CC, SB, and CT with a non-Options report.")
 
-with tabs[9]:  _tab_spec_var(commodity, df, report, color, start_date, end_date)
-
-with tabs[10]:  # Pairs
+with tabs[8]:  # Pairs
     if show_pairs:
         _tab_pairs(start_date, end_date, commodity)
     else:
         _na("Pairs view is available for KC, RC, CC, LCC, SB, and LSU.")
+
+with tabs[9]:  _tab_spec_var(commodity, df, report, color, start_date, end_date)
+
+with tabs[10]:  _tab_analysis(df, report, color, commodity)
