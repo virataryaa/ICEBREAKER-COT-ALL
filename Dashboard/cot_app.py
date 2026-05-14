@@ -45,22 +45,25 @@ ROLLEX_MAP  = {
     "SB": "rollex_SB.parquet",
     "RC": "rollex_RC.parquet",
     "LCC":"rollex_LCC.parquet",
+    "LSU":"rollex_LSU.parquet",
 }
-VAR_LOT_USD = {"KC":375, "CC":10, "SB":1120, "CT":500, "RC":10, "LCC":10}
+VAR_LOT_USD = {"KC":375, "CC":10, "SB":1120, "CT":500, "RC":10, "LCC":10, "LSU":50}
 _CONF_Z     = 2.3263
 
 # ── Commodity config ──────────────────────────────────────────────────────────
 COMM_COLORS = {
     "KC":"#1a56db","CC":"#d97706","SB":"#059669",
     "CT":"#7c3aed","RC":"#dc2626","LCC":"#0891b2",
+    "LSU":"#ea580c",
 }
 COMM_NAMES = {
     "KC":"KC : Arabica Coffee","CC":"CC : NYC Cocoa",
     "SB":"SB : Sugar #11","CT":"CT : Cotton #2",
     "RC":"RC : Robusta Coffee","LCC":"LCC : London Cocoa",
+    "LSU":"LSU : London White Sugar",
 }
-CONTRACT_SIZE = {"KC":37500,"CC":10,"SB":112000,"CT":50000,"RC":10,"LCC":10}
-CONTRACT_UNIT = {"KC":"lbs","CC":"MT","SB":"lbs","CT":"lbs","RC":"MT","LCC":"MT"}
+CONTRACT_SIZE = {"KC":37500,"CC":10,"SB":112000,"CT":50000,"RC":10,"LCC":10,"LSU":50}
+CONTRACT_UNIT = {"KC":"lbs","CC":"MT","SB":"lbs","CT":"lbs","RC":"MT","LCC":"MT","LSU":"MT"}
 CIT_COMMS     = {"KC","CC","SB","CT"}
 
 C_LONG  = "#16a34a"
@@ -2908,7 +2911,12 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
 # PAIRS TAB  (KC+RC  and  CC+LCC  — always Disagg F&O)
 # ══════════════════════════════════════════════════════════════════════════════
 def render_pairs(start_date=None, end_date=None, commodity=None):
-    pair = "KC + RC" if commodity in {"KC", "RC"} else "CC + LCC"
+    if commodity in {"KC", "RC"}:
+        pair = "KC + RC"
+    elif commodity in {"CC", "LCC"}:
+        pair = "CC + LCC"
+    else:
+        pair = "SB + LSU"
 
     st.markdown(
         f"<div style='font-size:.75rem;color:#555;margin-bottom:14px;padding:7px 14px;"
@@ -2919,7 +2927,12 @@ def render_pairs(start_date=None, end_date=None, commodity=None):
 
     view = st.radio("View", ["Combined Net", "Individual Legs"], horizontal=True, key="pair_view")
 
-    comm_a, comm_b = ("KC", "RC") if "KC" in pair else ("CC", "LCC")
+    if "KC" in pair:
+        comm_a, comm_b = "KC", "RC"
+    elif "CC" in pair:
+        comm_a, comm_b = "CC", "LCC"
+    else:
+        comm_a, comm_b = "SB", "LSU"
     clr_a = COMM_COLORS[comm_a]
     clr_b = COMM_COLORS[comm_b]
 
@@ -3076,7 +3089,7 @@ def render_pairs(start_date=None, end_date=None, commodity=None):
 # ══════════════════════════════════════════════════════════════════════════════
 # Options Only: hide Spreading (options spreads ≠ calendar spreads) and CIT vs Disagg (CIT is fut-only)
 # Pairs tab: only shown for KC/RC (coffee) and CC/LCC (cocoa) — hidden for CT/SB
-show_pairs = commodity in {"KC", "RC", "CC", "LCC"}
+show_pairs = commodity in {"KC", "RC", "CC", "LCC", "SB", "LSU"}
 
 if is_options:
     TAB_LABELS = ["Recap","Recap (Charts)","Spec","Commercial","Old / New",
