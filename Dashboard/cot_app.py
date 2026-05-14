@@ -2597,6 +2597,21 @@ def render_combined(commodity, start_date, end_date, color):
     def gc(d, col):
         return d[col].astype(float) if col in d.columns else pd.Series(0., index=d.index)
 
+    def _clabel(text):
+        st.markdown(
+            f"<p style='font-size:.71rem;color:#4b5563;margin:6px 0 6px;"
+            f"padding:4px 10px;background:#f3f4f6;border-left:3px solid {color};"
+            f"border-radius:0 4px 4px 0;line-height:1.5'>{text}</p>",
+            unsafe_allow_html=True)
+
+    _spec_a  = f"<b>{comm_a}</b> CIT: Large Spec + Non-Rep"
+    _spec_b  = f"<b>{comm_b}</b> Disagg F&amp;O: MM + Other + Non-Rep"
+    _oi_a    = f"<b>{comm_a}</b> CIT Total OI"
+    _oi_b    = f"<b>{comm_b}</b> Disagg F&amp;O Total OI"
+    _idx_a   = f"<b>{comm_a}</b> CIT Index Net"
+    _comm_a  = f"<b>{comm_a}</b> CIT Comm Long / Short"
+    _comm_b  = f"<b>{comm_b}</b> Disagg Producer Long / Short"
+
     # ── Spec extraction ───────────────────────────────────────────────────────
     # CIT leg: Large Spec + Non-Rep + extra columns for charts tab
     a = pd.DataFrame({
@@ -2653,6 +2668,7 @@ def render_combined(commodity, start_date, end_date, color):
 
     # ── Tab 0: Recap ──────────────────────────────────────────────────────────
     with c_tabs[0]:
+        _clabel(f"Net / Long / Short = ({_spec_a}) + ({_spec_b})")
         col_map = {
             (f"{comm_a} Net", "Net"):    merged["Net_a"].values,
             (f"{comm_b} Net", "Net"):    merged["Net_b"].values,
@@ -2745,6 +2761,7 @@ def render_combined(commodity, start_date, end_date, color):
             st.plotly_chart(fig, width='stretch')
 
         # 1. Combined OI
+        _clabel(f"Combined OI = {_oi_a} + {_oi_b}")
         _cline(
             f"{COMM_NAMES[commodity]}  ·  Combined Open Interest  ·  k lots",
             [
@@ -2754,6 +2771,7 @@ def render_combined(commodity, start_date, end_date, color):
             ])
 
         # 2. Combined Net Specs
+        _clabel(f"Combined Net = ({_spec_a}) + ({_spec_b})")
         _cline(
             f"{COMM_NAMES[commodity]}  ·  Combined Net Specs  ·  k lots",
             [
@@ -2763,6 +2781,7 @@ def render_combined(commodity, start_date, end_date, color):
             ])
 
         # 3. Combined Net + Index
+        _clabel(f"Combined Net + Index = ({_spec_a}) + ({_spec_b}) + {_idx_a}")
         _cline(
             f"{COMM_NAMES[commodity]}  ·  Combined Net + Index  ·  k lots",
             [
@@ -2771,6 +2790,7 @@ def render_combined(commodity, start_date, end_date, color):
             ])
 
         # 4. Relative Spec: CIT Net minus Disagg Net (bar)
+        _clabel(f"Relative Spec = ({_spec_a} Net) − ({_spec_b} Net)")
         rel = merged["Rel Spec"]
         fig_rel = go.Figure()
         fig_rel.add_trace(go.Bar(
@@ -2791,6 +2811,7 @@ def render_combined(commodity, start_date, end_date, color):
         st.plotly_chart(fig_rel, width='stretch')
 
         # 5. Combined Gross Commercial Legs
+        _clabel(f"Combined Commercial = {_comm_a} + {_comm_b}")
         _cline(
             f"{COMM_NAMES[commodity]}  ·  Combined Gross Commercial Legs  ·  k lots"
             f"  ({comm_a} Comm + {comm_b} Producer)",
@@ -2801,6 +2822,7 @@ def render_combined(commodity, start_date, end_date, color):
 
     # ── Tab 2: Combined Net ───────────────────────────────────────────────────
     with c_tabs[2]:
+        _clabel(f"Combined Net = ({_spec_a}) + ({_spec_b})")
         r, g, b_c = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=merged["Date"], y=merged["Net_a"], name=f"{comm_a} Spec Net",
@@ -2843,6 +2865,7 @@ def render_combined(commodity, start_date, end_date, color):
 
     # ── Tab 3: Gross Legs ────────────────────────────────────────────────────
     with c_tabs[3]:
+        _clabel(f"Left: {_spec_a} (Long / Short / Net) &nbsp;·&nbsp; Right: {_spec_b} (Long / Short / Net)")
         col1, col2 = st.columns(2)
         for ch, (comm, sfx, clr, leg_lbl) in zip([col1, col2], [
             (comm_a, "_a", color_a, f"Large+Small (CIT)"),
@@ -2871,6 +2894,7 @@ def render_combined(commodity, start_date, end_date, color):
 
     # ── Tab 4: Weekly Flow ────────────────────────────────────────────────────
     with c_tabs[4]:
+        _clabel(f"Weekly Δ: {_spec_a} &nbsp;|&nbsp; {_spec_b} &nbsp;|&nbsp; Combined = sum of both")
         wf1, wf2, wf3 = st.columns(3)
         for ch, (col, title) in zip([wf1,wf2,wf3],[
             ("Net_a",   f"{comm_a} Net Δ"),
