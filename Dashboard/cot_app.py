@@ -2109,12 +2109,22 @@ def render_analysis(d, report, color, commodity="KC"):
     pw_series = {name: s.diff() for name, s in metrics.items()}
     pw_series["Rollex %Δ"] = px_chg
     pw_df = pd.DataFrame(pw_series).dropna(how="all")
+    best_metric = list(metrics.keys())[0]   # default
     if len(pw_df) >= 4:
         pw_corr = pw_df.corr()
+        # pick best metric = highest |corr| with Rollex weekly Δ
+        if "Rollex %Δ" in pw_corr.columns:
+            rollex_corr = pw_corr["Rollex %Δ"].drop("Rollex %Δ", errors="ignore").dropna().abs()
+            if not rollex_corr.empty:
+                best_metric = rollex_corr.idxmax()
         np.fill_diagonal(pw_corr.values, np.nan)
         labels = list(pw_corr.columns)
         n      = len(labels)
-        tick_y = [f"<b>Rollex %Δ</b>" if l == "Rollex %Δ" else l for l in labels]
+        tick_y = [
+            f"<b><span style='font-size:12px'>Rollex %Δ</span></b>"
+            if l == "Rollex %Δ" else l
+            for l in labels
+        ]
         zv = pw_corr.values.tolist()
         tv = [[f"{v:+.2f}" if pd.notna(v) else "" for v in row] for row in zv]
         cell_h = 34
@@ -2144,60 +2154,6 @@ def render_analysis(d, report, color, commodity="KC"):
         st.plotly_chart(fig_pw, width='stretch')
     else:
         st.info("Not enough overlapping data for pairwise correlation.")
-
-    st.markdown("---")
-
-    # ── Section 2: Correlation with Rollex ───────────────────────────────────
-    st.markdown("<div style='font-size:.88rem;font-weight:700;color:#374151;"
-                "margin:0 0 8px;letter-spacing:.02em'>"
-                "CORRELATION WITH ROLLEX  ·  Px level &nbsp;·&nbsp; weekly Δ"
-                "</div>",
-                unsafe_allow_html=True)
-
-    corr_rows = {}
-    for name, series in metrics.items():
-        s = series.astype(float)
-        ds = s.diff()
-        row = {}
-        m1 = ~(px.isna() | s.isna())
-        if m1.sum() >= 10:
-            row["Px Level"] = float(np.corrcoef(px[m1], s[m1])[0, 1])
-        m2 = ~(px_chg.isna() | ds.isna())
-        if m2.sum() >= 10:
-            row["ΔPx% 1w"] = float(np.corrcoef(px_chg[m2], ds[m2])[0, 1])
-        if row:
-            corr_rows[name] = row
-
-    if corr_rows:
-        corr_df = pd.DataFrame(corr_rows).T.fillna(0)
-        if "ΔPx% 1w" in corr_df.columns:
-            corr_df = corr_df.reindex(corr_df["ΔPx% 1w"].abs().sort_values(ascending=False).index)
-
-        z_vals = corr_df.values.tolist()
-        text_vals = [[f"{v:+.2f}" for v in row] for row in z_vals]
-        fig_heat = go.Figure(go.Heatmap(
-            z=z_vals, x=corr_df.columns.tolist(), y=corr_df.index.tolist(),
-            colorscale=[[0,"#dc2626"],[0.45,"#fef2f2"],[0.5,"#f9fafb"],[0.55,"#f0fdf4"],[1,"#16a34a"]],
-            zmid=0, zmin=-1, zmax=1,
-            text=text_vals, texttemplate="%{text}", textfont=dict(size=10, color="#111"),
-            hovertemplate="<b>%{y}</b><br>%{x}: %{z:.3f}<extra></extra>",
-            colorbar=dict(title="r", thickness=10, len=0.8, tickfont=dict(size=9)),
-            xgap=2, ygap=2,
-        ))
-        n_rows = len(corr_df)
-        fig_heat.update_layout(**_BASE,
-            height=max(260, 30 * n_rows + 80),
-            margin=dict(l=150, r=40, t=36, b=20),
-            xaxis=dict(side="top", tickfont=dict(size=11), showgrid=False, zeroline=False),
-            yaxis=dict(autorange="reversed", tickfont=dict(size=10), showgrid=False, zeroline=False),
-        )
-        _hcol, _ = st.columns([3, 2])
-        with _hcol:
-            st.plotly_chart(fig_heat, width='stretch')
-
-        best_metric = corr_df["ΔPx% 1w"].abs().idxmax() if "ΔPx% 1w" in corr_df.columns else list(metrics.keys())[0]
-    else:
-        best_metric = list(metrics.keys())[0]
 
     st.markdown("---")
 
