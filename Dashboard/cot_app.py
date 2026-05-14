@@ -2284,11 +2284,14 @@ def render_analysis(d, report, color, commodity="KC"):
             clr_px    = C_LONG if px_move_abs >= 0 else C_SHORT
             clr_sp    = C_LONG if implied_chg >= 0 else C_SHORT
 
+            _bg_chg = "#16a34a" if implied_chg >= 0 else "#dc2626"
             st.markdown(
                 f"<div style='background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;"
                 f"padding:18px 20px;font-size:.82rem;line-height:1.9'>"
+                # header
                 f"<div style='font-size:.72rem;font-weight:700;color:#64748b;letter-spacing:.06em;"
                 f"margin-bottom:10px'>SINCE LAST COT</div>"
+                # price rows
                 f"<div><span style='color:#64748b'>Last COT date &nbsp;</span>"
                 f"<b>{last_cot_date.strftime('%a %d %b %Y')}</b></div>"
                 f"<div><span style='color:#64748b'>COT price &nbsp;</span>"
@@ -2300,17 +2303,29 @@ def render_analysis(d, report, color, commodity="KC"):
                 f"<span style='color:#64748b'>Price move &nbsp;</span>"
                 f"<b style='color:{clr_px}'>{arrow_px} {abs(px_move_abs):.2f} ({px_move_pct:+.1f}%)</b></div>"
                 f"<hr style='margin:10px 0;border-color:#e2e8f0'>"
-                f"<div style='font-size:.72rem;color:#64748b;margin-bottom:6px'>"
+                # regression note
+                f"<div style='font-size:.72rem;color:#64748b;margin-bottom:8px'>"
                 f"Regression: β={beta:+.2f}k per 1%  ·  R²={r2:.2f}</div>"
-                f"<div><span style='color:#64748b'>Implied Δ{sel} &nbsp;</span>"
-                f"<b style='color:{clr_sp}'>{arrow_sp} {abs(implied_chg):.1f}k lots</b></div>"
-                f"<div><span style='color:#64748b'>Last COT {sel} &nbsp;</span>"
-                f"<b>{last_cot_spec:+.1f}k</b></div>"
-                f"<div style='margin-top:4px;padding:8px 12px;"
+                # ── Implied Δ — highlighted card ──
+                f"<div style='padding:10px 14px;margin-bottom:8px;"
+                f"background:{_bg_chg}18;border-left:4px solid {_bg_chg};"
+                f"border-radius:0 6px 6px 0'>"
+                f"<div style='font-size:.70rem;color:#64748b;margin-bottom:2px'>IMPLIED Δ {sel.upper()}  ·  this week</div>"
+                f"<div style='font-size:1.25rem;font-weight:800;color:{_bg_chg}'>"
+                f"{arrow_sp} {implied_chg:+.1f}k lots</div>"
+                f"</div>"
+                # last COT net + implied net
+                f"<div style='font-size:.79rem;color:#64748b;margin-bottom:2px'>"
+                f"Last COT net &nbsp;<b style='color:#1a1a1a'>{last_cot_spec:+.1f}k</b>"
+                f" &nbsp;+&nbsp; implied Δ &nbsp;<b style='color:{_bg_chg}'>{implied_chg:+.1f}k</b></div>"
+                # implied current net — dark banner
+                f"<div style='margin-top:6px;padding:10px 14px;"
                 f"background:#1e293b;border-radius:6px;color:#f1f5f9;font-size:.84rem'>"
-                f"Implied current {sel}: <b>{implied_now:+.1f}k lots</b></div>"
+                f"<span style='font-size:.68rem;color:#94a3b8;display:block;margin-bottom:2px'>"
+                f"IMPLIED CURRENT NET POSITION</span>"
+                f"<b style='font-size:1.05rem'>{implied_now:+.1f}k lots</b></div>"
                 f"<div style='font-size:.68rem;color:#94a3b8;margin-top:8px'>"
-                f"Based on ΔSpec = {beta:+.2f} × ΔPx% + {alpha:+.2f} fitted on {len(x_hist)} weekly obs.</div>"
+                f"Δ{sel} = {beta:+.2f} × ΔPx% + {alpha:+.2f}  ·  fitted on {len(x_hist)} weekly obs.</div>"
                 f"</div>",
                 unsafe_allow_html=True)
 
