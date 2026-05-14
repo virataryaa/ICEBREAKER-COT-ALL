@@ -2128,6 +2128,7 @@ def render_analysis(d, report, color, commodity="KC"):
             options=["1Y", "2Y", "3Y", "5Y", "All"],
             value="All",
             key="reg_lookback",
+            help="Governs all charts, regression fitting, and the pairwise correlation matrix on this tab",
         )
     st.markdown(
         "<p style='font-size:.68rem;color:#94a3b8;margin:-4px 0 14px'>"
@@ -2290,9 +2291,9 @@ def render_analysis(d, report, color, commodity="KC"):
                 name="Predicted", marker_color="#94a3b8", opacity=0.65,
                 hovertemplate="<b>%{x}</b><br>Predicted Δ: %{y:+.2f}k<extra></extra>"))
             fig_avp.add_trace(go.Scatter(
-                x=bar_labels, y=residuals, name="Residual",
+                x=bar_labels, y=residuals, name="Error (Actual − Pred)",
                 mode="markers", marker=dict(color=res_clr, size=5, symbol="diamond"),
-                hovertemplate="<b>%{x}</b><br>Residual: %{y:+.2f}k<extra></extra>"))
+                hovertemplate="<b>%{x}</b><br>Error (Actual − Pred): %{y:+.2f}k<extra></extra>"))
             fig_avp.update_layout(**_BASE, height=340, barmode="group",
                 title=dict(text=f"Actual vs Predicted Δ{sel}  ·  last {bar_n}w",
                            font=dict(size=11, color="#374151"), x=0),
