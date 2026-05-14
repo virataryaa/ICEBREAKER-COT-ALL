@@ -2155,26 +2155,38 @@ def render_analysis(d, report, color, commodity="KC"):
             if len(pw_df) >= 4:
                 pw_corr = pw_df.corr()
                 np.fill_diagonal(pw_corr.values, np.nan)   # blank diagonal — exclude from colour scale
-                labels = list(pw_corr.columns)
-                tick_text = [f"<b>{l}</b>" if l == "Rollex %Δ" else l for l in labels]
+                labels    = list(pw_corr.columns)
+                n         = len(labels)
+                # Bold only the y-axis (row) Rollex label; x-axis stays plain
+                tick_y = [f"<b>Rollex %Δ</b>" if l == "Rollex %Δ" else l for l in labels]
                 zv = pw_corr.values.tolist()
                 tv = [[f"{v:+.2f}" if pd.notna(v) else "" for v in row] for row in zv]
+
+                cell_h = 34
                 fig_pw = go.Figure(go.Heatmap(
                     z=zv, x=labels, y=labels,
                     colorscale=[[0,"#dc2626"],[0.45,"#fef2f2"],[0.5,"#f9fafb"],[0.55,"#f0fdf4"],[1,"#16a34a"]],
                     zmid=0, zmin=-1, zmax=1,
-                    text=tv, texttemplate="%{text}", textfont=dict(size=9, color="#111"),
+                    text=tv, texttemplate="%{text}", textfont=dict(size=9.5, color="#111"),
                     hovertemplate="<b>%{y}</b> vs <b>%{x}</b>: %{z:.3f}<extra></extra>",
-                    colorbar=dict(title="r", thickness=10, len=0.8, tickfont=dict(size=9)),
+                    colorbar=dict(title=dict(text="r", side="right"), thickness=12, len=0.72,
+                                  tickvals=[-1,-0.5,0,0.5,1], tickfont=dict(size=9)),
+                    xgap=2, ygap=2,
                 ))
-                n = len(labels)
+                # Separator line above the Rollex row (paper x, category y)
+                rollex_idx = labels.index("Rollex %Δ")
+                fig_pw.add_shape(type="line", xref="paper", yref="y",
+                    x0=0, x1=1,
+                    y0=rollex_idx - 0.52, y1=rollex_idx - 0.52,
+                    line=dict(color="#374151", width=1.8, dash="dot"))
                 fig_pw.update_layout(**_BASE,
-                    height=max(320, 28 * n + 110),
-                    margin=dict(l=160, r=50, t=110, b=160),
-                    xaxis=dict(side="top", tickangle=-45, tickfont=dict(size=9),
-                               tickvals=labels, ticktext=tick_text),
+                    height=max(340, cell_h * n + 140),
+                    margin=dict(l=170, r=60, t=130, b=24),
+                    xaxis=dict(side="top", tickangle=-40, tickfont=dict(size=9),
+                               showgrid=False, showline=False, zeroline=False),
                     yaxis=dict(autorange="reversed", tickfont=dict(size=9),
-                               tickvals=labels, ticktext=tick_text),
+                               tickvals=labels, ticktext=tick_y,
+                               showgrid=False, showline=False, zeroline=False),
                 )
                 st.plotly_chart(fig_pw, width='stretch')
             else:
