@@ -2150,7 +2150,7 @@ def render_analysis(d, report, color, commodity="KC"):
     # ── Section 2: Correlation with Rollex ───────────────────────────────────
     st.markdown("<div style='font-size:.88rem;font-weight:700;color:#374151;"
                 "margin:0 0 8px;letter-spacing:.02em'>"
-                "CORRELATION WITH ROLLEX  ·  Px level &nbsp;·&nbsp; weekly Δ &nbsp;·&nbsp; forward Δ"
+                "CORRELATION WITH ROLLEX  ·  Px level &nbsp;·&nbsp; weekly Δ"
                 "</div>",
                 unsafe_allow_html=True)
 
@@ -2165,16 +2165,13 @@ def render_analysis(d, report, color, commodity="KC"):
         m2 = ~(px_chg.isna() | ds.isna())
         if m2.sum() >= 10:
             row["ΔPx% 1w"] = float(np.corrcoef(px_chg[m2], ds[m2])[0, 1])
-        m3 = ~(px_fwd.isna() | s.isna())
-        if m3.sum() >= 10:
-            row["→ ΔPx% fwd"] = float(np.corrcoef(px_fwd[m3], s[m3])[0, 1])
         if row:
             corr_rows[name] = row
 
     if corr_rows:
         corr_df = pd.DataFrame(corr_rows).T.fillna(0)
-        if "→ ΔPx% fwd" in corr_df.columns:
-            corr_df = corr_df.reindex(corr_df["→ ΔPx% fwd"].abs().sort_values(ascending=False).index)
+        if "ΔPx% 1w" in corr_df.columns:
+            corr_df = corr_df.reindex(corr_df["ΔPx% 1w"].abs().sort_values(ascending=False).index)
 
         z_vals = corr_df.values.tolist()
         text_vals = [[f"{v:+.2f}" for v in row] for row in z_vals]
@@ -2198,7 +2195,7 @@ def render_analysis(d, report, color, commodity="KC"):
         with _hcol:
             st.plotly_chart(fig_heat, width='stretch')
 
-        best_metric = corr_df["→ ΔPx% fwd"].abs().idxmax() if "→ ΔPx% fwd" in corr_df.columns else list(metrics.keys())[0]
+        best_metric = corr_df["ΔPx% 1w"].abs().idxmax() if "ΔPx% 1w" in corr_df.columns else list(metrics.keys())[0]
     else:
         best_metric = list(metrics.keys())[0]
 
