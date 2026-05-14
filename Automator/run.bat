@@ -1,4 +1,7 @@
 @echo off
+:: WEEKLY — COT backfill + Rollex sync + git push
+:: Schedule: Friday ~21:00 (after CFTC release + Rollex master update)
+:: For daily Rollex-only sync use run_daily.bat
 set PYTHONIOENCODING=utf-8
 set PYTHON=C:\Users\virat.arya\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe
 set LOG=C:\Users\virat.arya\ETG\SoftsDatabase - Documents\Database\Hardmine\ICEBREAKER\COT_ALL\Automator\run_log.txt
