@@ -2637,101 +2637,10 @@ def render_combined(commodity, start_date, end_date, color):
 
 
     # ── Tabs ──────────────────────────────────────────────────────────────────
-    c_tabs = st.tabs(["Combined Net", "Gross Legs", "Weekly Flow", "Recap"])
+    c_tabs = st.tabs(["Recap", "Combined Net", "Gross Legs", "Weekly Flow"])
 
-    # ── Tab 0: Combined Net ───────────────────────────────────────────────────
+    # ── Tab 0: Recap ──────────────────────────────────────────────────────────
     with c_tabs[0]:
-        r, g, b_c = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=merged["Date"], y=merged["Net_a"], name=f"{comm_a} Spec Net",
-            line=dict(color=color_a, width=1.8, dash="dot"),
-            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{comm_a} Net: %{{y:.1f}}k<extra></extra>"))
-        fig.add_trace(go.Scatter(x=merged["Date"], y=merged["Net_b"], name=f"{comm_b} Spec Net",
-            line=dict(color=color_b, width=1.8, dash="dot"),
-            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{comm_b} Net: %{{y:.1f}}k<extra></extra>"))
-        fig.add_trace(go.Scatter(x=merged["Date"], y=merged["Comb Net"], name="Combined Net",
-            fill="tozeroy", fillcolor=f"rgba({r},{g},{b_c},0.09)",
-            line=dict(color=color, width=2.4),
-            hovertemplate="<b>%{x|%b %Y}</b><br>Combined: %{y:.1f}k<extra></extra>"))
-        for px_col, px_lbl, px_clr in [("Px_a", f"{comm_a} Px", color_a), ("Px_b", f"{comm_b} Px", color_b)]:
-            if px_col in merged.columns:
-                fig.add_trace(go.Scatter(x=merged["Date"], y=merged[px_col], name=px_lbl,
-                    line=dict(color=px_clr, width=1.2, dash="longdash"), yaxis="y2",
-                    hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{px_lbl}: %{{y:.2f}}<extra></extra>"))
-        fig.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.15)")
-        fig.update_layout(**_BASE, height=420,
-            title=dict(text=f"{COMM_NAMES[commodity]}  ·  Combined Spec Net  ·  k lots",
-                       font=dict(size=12,color="#374151"), x=0),
-            margin=dict(l=52,r=60,t=44,b=72),
-            legend=dict(orientation="h",y=-0.2,x=0.5,xanchor="center",font_size=10,bgcolor="rgba(0,0,0,0)"),
-            xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
-            yaxis=dict(**_ax(),title_text="k lots",title_font_size=10),
-            yaxis2={**_ax(),"title_text":"Price","title_font_size":10,"overlaying":"y","side":"right","showgrid":False})
-
-        st.plotly_chart(fig, width='stretch')
-
-        delta = merged["Comb Net"].diff().fillna(0)
-        fig2 = go.Figure(go.Bar(x=merged["Date"], y=delta,
-            marker=dict(color=[C_LONG if v>=0 else C_SHORT for v in delta], opacity=0.8, line=dict(width=0)),
-            hovertemplate="<b>%{x|%b %Y}</b><br>Δ Combined Net: %{y:+.1f}k<extra></extra>"))
-        fig2.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.14)")
-        fig2.update_layout(**_BASE, height=240,
-            title=dict(text="Combined Net — weekly Δ  ·  k lots",font=dict(size=11,color="#444"),x=0),
-            margin=dict(l=50,r=12,t=36,b=60), showlegend=False,
-            xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
-            yaxis=dict(**_ax(),title_text="Δ k lots",title_font_size=10))
-        st.plotly_chart(fig2, width='stretch')
-
-    # ── Tab 1: Gross Legs ────────────────────────────────────────────────────
-    with c_tabs[1]:
-        col1, col2 = st.columns(2)
-        for ch, (comm, sfx, clr, leg_lbl) in zip([col1, col2], [
-            (comm_a, "_a", color_a, f"Large+Small (CIT)"),
-            (comm_b, "_b", color_b, f"MM+Other+Non-Rep (Disagg)"),
-        ]):
-            with ch:
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=merged["Date"], y=merged[f"Long{sfx}"], name="Long",
-                    line=dict(color=C_LONG, width=2.0),
-                    hovertemplate="<b>%{x|%b %Y}</b><br>Long: %{y:.1f}k<extra></extra>"))
-                fig.add_trace(go.Scatter(x=merged["Date"], y=merged[f"Short{sfx}"], name="Short",
-                    line=dict(color=C_SHORT, width=2.0),
-                    hovertemplate="<b>%{x|%b %Y}</b><br>Short: %{y:.1f}k<extra></extra>"))
-                fig.add_trace(go.Scatter(x=merged["Date"], y=merged[f"Net{sfx}"], name="Net",
-                    fill="tozeroy", fillcolor="rgba(26,86,219,0.09)",
-                    line=dict(color=C_NET, width=2.2),
-                    hovertemplate="<b>%{x|%b %Y}</b><br>Net: %{y:.1f}k<extra></extra>"))
-                fig.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.15)")
-                fig.update_layout(**_BASE, height=340,
-                    title=dict(text=f"{comm} Spec · {leg_lbl}  ·  k lots",font=dict(size=11,color="#374151"),x=0),
-                    margin=dict(l=50,r=12,t=40,b=72),
-                    legend=dict(orientation="h",y=-0.24,x=0.5,xanchor="center",font_size=10,bgcolor="rgba(0,0,0,0)"),
-                    xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
-                    yaxis=dict(**_ax(),title_text="k lots",title_font_size=10))
-                st.plotly_chart(fig, width='stretch')
-
-    # ── Tab 2: Weekly Flow ────────────────────────────────────────────────────
-    with c_tabs[2]:
-        wf1, wf2, wf3 = st.columns(3)
-        for ch, (col, title) in zip([wf1,wf2,wf3],[
-            ("Net_a",   f"{comm_a} Net Δ"),
-            ("Net_b",   f"{comm_b} Net Δ"),
-            ("Comb Net","Combined Net Δ"),
-        ]):
-            delta = merged[col].diff().fillna(0)
-            fig = go.Figure(go.Bar(x=merged["Date"], y=delta,
-                marker=dict(color=[C_LONG if v>=0 else C_SHORT for v in delta],opacity=0.8,line=dict(width=0)),
-                hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Δ: %{{y:+.1f}}k<extra></extra>"))
-            fig.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.14)")
-            fig.update_layout(**_BASE, height=280,
-                title=dict(text=f"{title}  ·  k lots",font=dict(size=10,color="#444"),x=0),
-                margin=dict(l=44,r=8,t=36,b=52), showlegend=False,
-                xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
-                yaxis=dict(**_ax(),title_text="Δ k lots",title_font_size=9))
-            with ch: st.plotly_chart(fig, width='stretch')
-
-    # ── Tab 3: Recap ──────────────────────────────────────────────────────────
-    with c_tabs[3]:
         col_map = {
             (f"{comm_a} Net", "Net"):    merged["Net_a"].values,
             (f"{comm_b} Net", "Net"):    merged["Net_b"].values,
@@ -2764,10 +2673,127 @@ def render_combined(commodity, start_date, end_date, color):
 
         with st.expander("Change summary  ·  k lots", expanded=True):
             st.markdown(_recap_html(summary_df, signed_rows={"Δ 1w","Δ 1m","Z-Score"}, z_rows={"Z-Score"}), unsafe_allow_html=True)
+
         with st.expander("Historical positions  ·  k lots", expanded=True):
             disp = body_df.iloc[:20].copy()
             disp.index = [f"{dt.day}-{dt.strftime('%b-%y')}" if hasattr(dt,'day') else str(dt) for dt in disp.index]
             st.markdown(_recap_html(disp, scroll=True), unsafe_allow_html=True)
+
+        with st.expander("Weekly change  ·  k lots", expanded=True):
+            chg = body_df.diff(-1).iloc[:20].copy()
+            chg.index = disp.index
+            st.markdown(_recap_html(chg, signed=True, change_table=True, scroll=True), unsafe_allow_html=True)
+
+            # Weekly Δ stats over selected period
+            chg_full = body_df.diff(-1).dropna()
+            if not chg_full.empty:
+                rz, ra, rn, rx = {}, {}, {}, {}
+                for c in chg_full.columns:
+                    s2 = chg_full[c].replace([np.inf,-np.inf], np.nan).dropna()
+                    if len(s2) >= 4:
+                        mu2, sigma2 = s2.mean(), s2.std()
+                        ra[c] = mu2; rn[c] = s2.min(); rx[c] = s2.max()
+                        if not chg.empty and c in chg.columns:
+                            v2 = chg.iloc[0][c]
+                            rz[c] = (v2 - mu2) / sigma2 if pd.notna(v2) and sigma2 > 0 else np.nan
+                chg_stats = pd.DataFrame(
+                    [rz, ra, rn, rx],
+                    index=["Z-Score Δ", "Avg Δ", "Min Δ", "Max Δ"],
+                    columns=chg_full.columns)
+                st.markdown(
+                    f"<p style='font-size:.72rem;color:{GRAY};margin:10px 0 2px'>Weekly Δ stats  ·  selected period</p>",
+                    unsafe_allow_html=True)
+                st.markdown(_recap_html(chg_stats, signed=True, z_rows={"Z-Score Δ"}), unsafe_allow_html=True)
+
+    # ── Tab 1: Combined Net ───────────────────────────────────────────────────
+    with c_tabs[1]:
+        r, g, b_c = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=merged["Date"], y=merged["Net_a"], name=f"{comm_a} Spec Net",
+            line=dict(color=color_a, width=1.8, dash="dot"),
+            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{comm_a} Net: %{{y:.1f}}k<extra></extra>"))
+        fig.add_trace(go.Scatter(x=merged["Date"], y=merged["Net_b"], name=f"{comm_b} Spec Net",
+            line=dict(color=color_b, width=1.8, dash="dot"),
+            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{comm_b} Net: %{{y:.1f}}k<extra></extra>"))
+        fig.add_trace(go.Scatter(x=merged["Date"], y=merged["Comb Net"], name="Combined Net",
+            fill="tozeroy", fillcolor=f"rgba({r},{g},{b_c},0.09)",
+            line=dict(color=color, width=2.4),
+            hovertemplate="<b>%{x|%b %Y}</b><br>Combined: %{y:.1f}k<extra></extra>"))
+        for px_col, px_lbl, px_clr in [("Px_a", f"{comm_a} Px", color_a), ("Px_b", f"{comm_b} Px", color_b)]:
+            if px_col in merged.columns:
+                fig.add_trace(go.Scatter(x=merged["Date"], y=merged[px_col], name=px_lbl,
+                    line=dict(color=px_clr, width=1.2, dash="longdash"), yaxis="y2",
+                    hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{px_lbl}: %{{y:.2f}}<extra></extra>"))
+        fig.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.15)")
+        fig.update_layout(**_BASE, height=420,
+            title=dict(text=f"{COMM_NAMES[commodity]}  ·  Combined Spec Net  ·  k lots",
+                       font=dict(size=12,color="#374151"), x=0),
+            margin=dict(l=52,r=60,t=44,b=72),
+            legend=dict(orientation="h",y=-0.2,x=0.5,xanchor="center",font_size=10,bgcolor="rgba(0,0,0,0)"),
+            xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
+            yaxis=dict(**_ax(),title_text="k lots",title_font_size=10),
+            yaxis2={**_ax(),"title_text":"Price","title_font_size":10,"overlaying":"y","side":"right","showgrid":False})
+        st.plotly_chart(fig, width='stretch')
+
+        delta = merged["Comb Net"].diff().fillna(0)
+        fig2 = go.Figure(go.Bar(x=merged["Date"], y=delta,
+            marker=dict(color=[C_LONG if v>=0 else C_SHORT for v in delta], opacity=0.8, line=dict(width=0)),
+            hovertemplate="<b>%{x|%b %Y}</b><br>Δ Combined Net: %{y:+.1f}k<extra></extra>"))
+        fig2.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.14)")
+        fig2.update_layout(**_BASE, height=240,
+            title=dict(text="Combined Net — weekly Δ  ·  k lots",font=dict(size=11,color="#444"),x=0),
+            margin=dict(l=50,r=12,t=36,b=60), showlegend=False,
+            xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
+            yaxis=dict(**_ax(),title_text="Δ k lots",title_font_size=10))
+        st.plotly_chart(fig2, width='stretch')
+
+    # ── Tab 2: Gross Legs ────────────────────────────────────────────────────
+    with c_tabs[2]:
+        col1, col2 = st.columns(2)
+        for ch, (comm, sfx, clr, leg_lbl) in zip([col1, col2], [
+            (comm_a, "_a", color_a, f"Large+Small (CIT)"),
+            (comm_b, "_b", color_b, f"MM+Other+Non-Rep (Disagg)"),
+        ]):
+            with ch:
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=merged["Date"], y=merged[f"Long{sfx}"], name="Long",
+                    line=dict(color=C_LONG, width=2.0),
+                    hovertemplate="<b>%{x|%b %Y}</b><br>Long: %{y:.1f}k<extra></extra>"))
+                fig.add_trace(go.Scatter(x=merged["Date"], y=merged[f"Short{sfx}"], name="Short",
+                    line=dict(color=C_SHORT, width=2.0),
+                    hovertemplate="<b>%{x|%b %Y}</b><br>Short: %{y:.1f}k<extra></extra>"))
+                fig.add_trace(go.Scatter(x=merged["Date"], y=merged[f"Net{sfx}"], name="Net",
+                    fill="tozeroy", fillcolor="rgba(26,86,219,0.09)",
+                    line=dict(color=C_NET, width=2.2),
+                    hovertemplate="<b>%{x|%b %Y}</b><br>Net: %{y:.1f}k<extra></extra>"))
+                fig.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.15)")
+                fig.update_layout(**_BASE, height=340,
+                    title=dict(text=f"{comm} Spec · {leg_lbl}  ·  k lots",font=dict(size=11,color="#374151"),x=0),
+                    margin=dict(l=50,r=12,t=40,b=72),
+                    legend=dict(orientation="h",y=-0.24,x=0.5,xanchor="center",font_size=10,bgcolor="rgba(0,0,0,0)"),
+                    xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
+                    yaxis=dict(**_ax(),title_text="k lots",title_font_size=10))
+                st.plotly_chart(fig, width='stretch')
+
+    # ── Tab 3: Weekly Flow ────────────────────────────────────────────────────
+    with c_tabs[3]:
+        wf1, wf2, wf3 = st.columns(3)
+        for ch, (col, title) in zip([wf1,wf2,wf3],[
+            ("Net_a",   f"{comm_a} Net Δ"),
+            ("Net_b",   f"{comm_b} Net Δ"),
+            ("Comb Net","Combined Net Δ"),
+        ]):
+            delta = merged[col].diff().fillna(0)
+            fig = go.Figure(go.Bar(x=merged["Date"], y=delta,
+                marker=dict(color=[C_LONG if v>=0 else C_SHORT for v in delta],opacity=0.8,line=dict(width=0)),
+                hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Δ: %{{y:+.1f}}k<extra></extra>"))
+            fig.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.14)")
+            fig.update_layout(**_BASE, height=280,
+                title=dict(text=f"{title}  ·  k lots",font=dict(size=10,color="#444"),x=0),
+                margin=dict(l=44,r=8,t=36,b=52), showlegend=False,
+                xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
+                yaxis=dict(**_ax(),title_text="Δ k lots",title_font_size=9))
+            with ch: st.plotly_chart(fig, width='stretch')
 
 
 # ══════════════════════════════════════════════════════════════════════════════
