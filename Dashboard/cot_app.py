@@ -59,7 +59,7 @@ _CONF_Z     = 2.3263
 COMM_COLORS = {
     "KC":"#1a56db","CC":"#d97706","SB":"#059669",
     "CT":"#7c3aed","RC":"#dc2626","LCC":"#0891b2",
-    "LSU":"#ea580c","KRC":"#6d28d9","CLC":"#0f766e",
+    "LSU":"#ea580c","KRC":"#6d28d9","CLC":"#0f766e","SLS":"#a16207",
 }
 COMM_NAMES = {
     "KC":"KC : Arabica Coffee","CC":"CC : NYC Cocoa",
@@ -68,12 +68,13 @@ COMM_NAMES = {
     "LSU":"LSU : London White Sugar",
     "KRC":"KC + RC : Combined Coffee",
     "CLC":"CC + LCC : Combined Cocoa",
+    "SLS":"SB + LSU : Combined Sugar",
 }
-CONTRACT_SIZE = {"KC":37500,"CC":10,"SB":112000,"CT":50000,"RC":10,"LCC":10,"LSU":50,"KRC":1,"CLC":1}
-CONTRACT_UNIT = {"KC":"lbs","CC":"MT","SB":"lbs","CT":"lbs","RC":"MT","LCC":"MT","LSU":"MT","KRC":"lots","CLC":"lots"}
+CONTRACT_SIZE = {"KC":37500,"CC":10,"SB":112000,"CT":50000,"RC":10,"LCC":10,"LSU":50,"KRC":1,"CLC":1,"SLS":1}
+CONTRACT_UNIT = {"KC":"lbs","CC":"MT","SB":"lbs","CT":"lbs","RC":"MT","LCC":"MT","LSU":"MT","KRC":"lots","CLC":"lots","SLS":"lots"}
 CIT_COMMS     = {"KC","CC","SB","CT"}
-COMBINED_COMMS = {"KRC","CLC"}
-COMBINED_MAP   = {"KRC":("KC","RC"), "CLC":("CC","LCC")}
+COMBINED_COMMS = {"KRC","CLC","SLS"}
+COMBINED_MAP   = {"KRC":("KC","RC"), "CLC":("CC","LCC"), "SLS":("SB","LSU")}
 
 C_LONG  = "#16a34a"
 C_SHORT = "#dc2626"
