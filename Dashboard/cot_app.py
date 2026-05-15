@@ -1093,7 +1093,7 @@ def _seas_chart_overlay(wide, metric_old, metric_new, title, ylabel, sm=CROP_STA
     return fig
 
 
-def render_old_new(d_crops, color):
+def render_old_new(d_crops, color, commodity=""):
     old   = d_crops[d_crops["Crop"]=="Old"].set_index("Date").sort_index()
     other = d_crops[d_crops["Crop"]=="Other"].set_index("Date").sort_index()
     alla  = d_crops[d_crops["Crop"]=="All"].set_index("Date").sort_index()
@@ -1105,12 +1105,22 @@ def render_old_new(d_crops, color):
     if other_check.empty:
         st.info("Old/New crop split not available for this commodity."); return
 
+    # Default crop-start month per commodity (forced for key markets)
+    _forced_months = {"CT": 7, "KC": 9, "CC": 9}
+    _forced_names  = {"CT": "July", "KC": "September", "CC": "September"}
+    _default_month = _forced_months.get(commodity, CROP_START_MONTH)
+    _forced_help   = (
+        f"Default forced to {_forced_names[commodity]} for {commodity} to match the standard crop calendar. "
+        "You can change it manually if needed."
+        if commodity in _forced_months else None
+    )
+
     with st.expander("Seasonality  ·  Old vs New Crop (adjustable start)", expanded=True):
         wide_full = _on_seasonal_wide(d_crops)
         if not wide_full.empty:
             sm = st.selectbox("Crop year starts in", list(range(1,13)),
-                              index=CROP_START_MONTH-1, format_func=lambda m: _MONTHS[m-1],
-                              key="cy_start_on")
+                              index=_default_month-1, format_func=lambda m: _MONTHS[m-1],
+                              key="cy_start_on", help=_forced_help)
             wide_cy = wide_full.copy()
             wide_cy["CropYear"] = pd.to_datetime(wide_cy["Date"]).apply(lambda d: _crop_year_label(d, sm))
             wide_cy["CropWeek"] = pd.to_datetime(wide_cy["Date"]).apply(lambda d: _crop_week_num(d, sm))
@@ -2329,7 +2339,8 @@ def render_analysis(d, report, color, commodity="KC"):
     pw_df = pd.DataFrame(pw_series).dropna(how="all")
     if len(pw_df) >= 4:
         pw_corr = pw_df.corr()
-        np.fill_diagonal(pw_corr.values, np.nan)
+        pw_arr = pw_corr.values.copy()
+        np.fill_diagonal(pw_arr, np.nan)
         labels = list(pw_corr.columns)
         n      = len(labels)
         tick_y = [
@@ -2337,7 +2348,7 @@ def render_analysis(d, report, color, commodity="KC"):
             if l == "Rollex %Δ" else l
             for l in labels
         ]
-        zv = pw_corr.values.tolist()
+        zv = pw_arr.tolist()
         tv = [[f"{v:+.2f}" if pd.notna(v) else "" for v in row] for row in zv]
         cell_h = 34
         fig_pw = go.Figure(go.Heatmap(
@@ -3897,8 +3908,8 @@ def _tab_spreading(d, color, df_all_crops=None):
     render_spreading(d, color, df_all_crops)
 
 @st.fragment
-def _tab_old_new(d_crops, color):
-    render_old_new(d_crops, color)
+def _tab_old_new(d_crops, color, commodity=""):
+    render_old_new(d_crops, color, commodity)
 
 @st.fragment
 def _tab_concentration(d, color):
@@ -3952,7 +3963,7 @@ with tabs[5]:  # Old / New
     if report == "CIT":
         _na("Old / New crop split is only available in the Disaggregated report.")
     elif df_all_crops is not None:
-        _tab_old_new(df_all_crops, color)
+        _tab_old_new(df_all_crops, color, commodity)
     else:
         _na("Old / New crop split is not available for this commodity.")
 
