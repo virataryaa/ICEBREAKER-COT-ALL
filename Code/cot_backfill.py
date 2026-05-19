@@ -36,15 +36,18 @@ Usage:
 """
 
 import argparse
+import json
 import sys
+import threading
 import icepython as ice
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-CODE_DIR         = Path(__file__).parent
-DB_DIR           = CODE_DIR.parent / "Database"
+CODE_DIR      = Path(__file__).parent
+DB_DIR        = CODE_DIR.parent / "Database"
+AUTOMATOR_DIR = CODE_DIR.parent / "Automator"
 CIT_PATH         = DB_DIR / "cot_cit.parquet"
 DISAGG_FUTOPT_PATH = DB_DIR / "cot_disagg_futopt.parquet"
 DISAGG_FUT_PATH    = DB_DIR / "cot_disagg_fut.parquet"
@@ -222,20 +225,35 @@ DISAGG_FINAL_COLS = (
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def fetch_ts(symbol, fields, start, end):
-    try:
+    def _call():
         data = ice.get_timeseries(symbol, fields, granularity="D",
                                   start_date=start, end_date=end)
-        rows = list(data)
-        if not rows or (rows[0] and "Error" in str(rows[0][0])):
+        return list(data)
+    for attempt in range(FETCH_RETRIES + 1):
+        try:
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                rows = ex.submit(_call).result(timeout=FETCH_TIMEOUT)
+            if not rows or (rows[0] and "Error" in str(rows[0][0])):
+                return None
+            df = pd.DataFrame(rows[1:], columns=["Date"] + fields)
+            df["Date"] = pd.to_datetime(df["Date"])
+            for f in fields:
+                df[f] = pd.to_numeric(df[f], errors="coerce")
+            return df.set_index("Date")
+        except TimeoutError:
+            if attempt < FETCH_RETRIES:
+                print(f"  TIMEOUT {symbol} — retry {attempt + 1}/{FETCH_RETRIES}...")
+            else:
+                print(f"  TIMEOUT {symbol} (>{FETCH_TIMEOUT}s x{FETCH_RETRIES + 1} attempts)")
+                with _failures_lock:
+                    FETCH_FAILURES.append(symbol)
+                return None
+        except Exception as e:
+            print(f"  ERROR {symbol}: {e}")
+            with _failures_lock:
+                FETCH_FAILURES.append(symbol)
             return None
-        df = pd.DataFrame(rows[1:], columns=["Date"] + fields)
-        df["Date"] = pd.to_datetime(df["Date"])
-        for f in fields:
-            df[f] = pd.to_numeric(df[f], errors="coerce")
-        return df.set_index("Date")
-    except Exception as e:
-        print(f"  ERROR {symbol}: {e}")
-        return None
+    return None
 
 
 def fetch_ts_chunked(symbol, fields, start, end):
@@ -254,19 +272,34 @@ def fetch_ts_chunked(symbol, fields, start, end):
 
 
 def fetch_px(symbol, start, end):
-    try:
+    def _call():
         data = ice.get_timeseries(symbol, ["Settle"], granularity="D",
                                   start_date=start, end_date=end)
-        rows = list(data)
-        if not rows or (rows[0] and "Error" in str(rows[0][0])):
+        return list(data)
+    for attempt in range(FETCH_RETRIES + 1):
+        try:
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                rows = ex.submit(_call).result(timeout=FETCH_TIMEOUT)
+            if not rows or (rows[0] and "Error" in str(rows[0][0])):
+                return pd.Series(dtype=float)
+            df = pd.DataFrame(rows[1:], columns=["Date", "Px"])
+            df["Date"] = pd.to_datetime(df["Date"])
+            df["Px"] = pd.to_numeric(df["Px"], errors="coerce")
+            return df.set_index("Date")["Px"]
+        except TimeoutError:
+            if attempt < FETCH_RETRIES:
+                print(f"  TIMEOUT px {symbol} — retry {attempt + 1}/{FETCH_RETRIES}...")
+            else:
+                print(f"  TIMEOUT px {symbol} (>{FETCH_TIMEOUT}s x{FETCH_RETRIES + 1} attempts)")
+                with _failures_lock:
+                    FETCH_FAILURES.append(f"px:{symbol}")
+                return pd.Series(dtype=float)
+        except Exception as e:
+            print(f"  ERROR px {symbol}: {e}")
+            with _failures_lock:
+                FETCH_FAILURES.append(f"px:{symbol}")
             return pd.Series(dtype=float)
-        df = pd.DataFrame(rows[1:], columns=["Date", "Px"])
-        df["Date"] = pd.to_datetime(df["Date"])
-        df["Px"] = pd.to_numeric(df["Px"], errors="coerce")
-        return df.set_index("Date")["Px"]
-    except Exception as e:
-        print(f"  ERROR px {symbol}: {e}")
-        return pd.Series(dtype=float)
+    return pd.Series(dtype=float)
 
 
 def upsert(db_path, new_data, fetch_start, key_cols):
@@ -352,13 +385,17 @@ def build_disagg(comm, cfg, version, start, end):
     symbol = cfg["comb_sym"] if version == "FutOpt" else cfg["fut_sym"]
     pieces = []
 
-    for crop in ("All", "Old", "Other"):
-        print(f"  [{comm}] Disagg {version} {crop}  {symbol}...", end=" ", flush=True)
-        df = _fetch_disagg_slice(symbol, crop, start, end)
-        if df is None:
-            print("no data"); continue
-        print(f"{len(df)} rows")
-        pieces.append(df)
+    with ThreadPoolExecutor(max_workers=3) as inner:
+        crop_futures = {inner.submit(_fetch_disagg_slice, symbol, crop, start, end): crop
+                        for crop in ("All", "Old", "Other")}
+        for f in as_completed(crop_futures):
+            crop = crop_futures[f]
+            df = f.result()
+            print(f"  [{comm}] Disagg {version} {crop}  {symbol}... ", end="", flush=True)
+            if df is None:
+                print("no data"); continue
+            print(f"{len(df)} rows")
+            pieces.append(df)
 
     if not pieces:
         return None
@@ -385,6 +422,11 @@ def build_disagg(comm, cfg, version, start, end):
             combined[c] = pd.to_numeric(combined[c], errors="coerce").astype("Float64")
     return combined
 
+
+FETCH_TIMEOUT  = 60   # seconds per ICE request before giving up
+FETCH_RETRIES  = 1    # retry once on timeout before marking as failed
+_failures_lock = threading.Lock()
+FETCH_FAILURES: list[str] = []
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
@@ -420,7 +462,7 @@ if __name__ == "__main__":
         return s, f"INCREMENTAL from {s}"
 
 
-    MAX_WORKERS = 3
+    MAX_WORKERS = 6
 
     # ── CIT ───────────────────────────────────────────────────────────────────────
     if run_cit:
@@ -445,48 +487,49 @@ if __name__ == "__main__":
         else:
             print("CIT: no data.")
 
-    # ── Disagg FutOpt ─────────────────────────────────────────────────────────────
+    # ── Disagg FutOpt + Fut (combined parallel phase) ─────────────────────────────
     if run_disagg:
-        fetch_start, mode = _get_start(DISAGG_FUTOPT_PATH, ["Commodity", "Crop"])
-        print(f"\nDISAGG FutOpt | {mode}\n")
+        fo_start,  fo_mode  = _get_start(DISAGG_FUTOPT_PATH, ["Commodity", "Crop"])
+        fut_start, fut_mode = _get_start(DISAGG_FUT_PATH,    ["Commodity", "Crop"])
+        print(f"\nDISAGG FutOpt | {fo_mode}")
+        print(f"DISAGG Fut    | {fut_mode}\n")
 
-        all_fo = []
+        all_fo, all_fut = [], []
+
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-            futures = {pool.submit(build_disagg, comm, cfg, "FutOpt", fetch_start, END_DATE): comm
-                       for comm, cfg in DISAGG_COMMODITIES.items()}
+            futures = {}
+            for comm, cfg in DISAGG_COMMODITIES.items():
+                futures[pool.submit(build_disagg, comm, cfg, "FutOpt", fo_start,  END_DATE)] = ("FutOpt", fo_start)
+                futures[pool.submit(build_disagg, comm, cfg, "Fut",    fut_start, END_DATE)] = ("Fut",    fut_start)
             for f in as_completed(futures):
+                version, _ = futures[f]
                 df = f.result()
                 if df is not None:
-                    all_fo.append(df)
+                    (all_fo if version == "FutOpt" else all_fut).append(df)
 
         if all_fo:
             final = upsert(DISAGG_FUTOPT_PATH, pd.concat(all_fo, ignore_index=True),
-                           fetch_start, ["Commodity", "Crop"])
+                           fo_start, ["Commodity", "Crop"])
             print(f"\nDisagg FutOpt saved -> {DISAGG_FUTOPT_PATH}  |  {len(final)} rows")
             print(final.groupby(["Commodity", "Crop"]).agg(
                 rows=("Date", "count"), from_=("Date", "min"), to=("Date", "max")).to_string())
         else:
             print("Disagg FutOpt: no data.")
 
-    # ── Disagg Fut ────────────────────────────────────────────────────────────────
-    if run_disagg:
-        fetch_start, mode = _get_start(DISAGG_FUT_PATH, ["Commodity", "Crop"])
-        print(f"\nDISAGG Fut | {mode}\n")
-
-        all_fut = []
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-            futures = {pool.submit(build_disagg, comm, cfg, "Fut", fetch_start, END_DATE): comm
-                       for comm, cfg in DISAGG_COMMODITIES.items()}
-            for f in as_completed(futures):
-                df = f.result()
-                if df is not None:
-                    all_fut.append(df)
-
         if all_fut:
             final = upsert(DISAGG_FUT_PATH, pd.concat(all_fut, ignore_index=True),
-                           fetch_start, ["Commodity", "Crop"])
+                           fut_start, ["Commodity", "Crop"])
             print(f"\nDisagg Fut saved -> {DISAGG_FUT_PATH}  |  {len(final)} rows")
             print(final.groupby(["Commodity", "Crop"]).agg(
                 rows=("Date", "count"), from_=("Date", "min"), to=("Date", "max")).to_string())
         else:
             print("Disagg Fut: no data.")
+
+    # ── Write failure manifest ─────────────────────────────────────────────────────
+    failures_path = AUTOMATOR_DIR / "failures.json"
+    unique_failures = sorted(set(FETCH_FAILURES))
+    with open(failures_path, "w") as fh:
+        json.dump({"run_time": END_DATE, "failed_symbols": unique_failures}, fh, indent=2)
+    if unique_failures:
+        print(f"\nWARNING: {len(unique_failures)} symbol(s) failed — {unique_failures}")
+        print(f"Details written to {failures_path}")

@@ -29,12 +29,12 @@ if %ERRORLEVEL% NEQ 0 (
     git -c core.askpass= commit -m "Daily Rollex sync: %date%" >> "%LOG%" 2>&1
     git -c core.askpass= pull --rebase --autostash >> "%LOG%" 2>&1
     git -c core.askpass= push >> "%LOG%" 2>&1
-    if %ERRORLEVEL% NEQ 0 (
-        set GIT_STATUS=failed
-        echo ERROR: git push failed >> "%LOG%"
-    ) else (
+    if not errorlevel 1 (
         set GIT_STATUS=pushed
         echo Git push done. >> "%LOG%"
+    ) else (
+        set GIT_STATUS=failed
+        echo ERROR: git push failed >> "%LOG%"
     )
 ) else (
     echo No changes to commit. >> "%LOG%"

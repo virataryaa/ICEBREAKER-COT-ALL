@@ -42,18 +42,17 @@ if %ERRORLEVEL% NEQ 0 (
     goto notify
 )
 git add Database\cot_cit.parquet Database\cot_disagg_futopt.parquet Database\cot_disagg_fut.parquet Database\Rollex\rollex_*.parquet Database\RollYield\roll_yield_data.parquet >> "%LOG%" 2>&1
-git diff --cached --quiet
+git diff --cached --quiet >> "%LOG%" 2>&1
 if %ERRORLEVEL% NEQ 0 (
     git -c core.askpass= commit -m "Auto update: COT_ALL %date%" >> "%LOG%" 2>&1
     git -c core.askpass= pull --rebase --autostash >> "%LOG%" 2>&1
     git -c core.askpass= push >> "%LOG%" 2>&1
-    set PUSH_ERR=%ERRORLEVEL%
-    if %PUSH_ERR% NEQ 0 (
-        set GIT_STATUS=failed
-        echo ERROR: git push failed >> "%LOG%"
-    ) else (
+    if not errorlevel 1 (
         set GIT_STATUS=pushed
         echo Git push done. >> "%LOG%"
+    ) else (
+        set GIT_STATUS=failed
+        echo ERROR: git push failed >> "%LOG%"
     )
 ) else (
     echo No changes to commit. >> "%LOG%"
