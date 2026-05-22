@@ -854,6 +854,41 @@ SPREAD_COLS = {
     "Other Rept":    ("Other Spread", "#d97706"),
 }
 
+# OC/NC — same categories with a short key for column naming
+_OCNC_CATS = {
+    "Managed Money": ("MM Spread",    C_NET,    "MM"),
+    "Swap Dealers":  ("Swap Spread",  "#7c3aed","Swap"),
+    "Other Rept":    ("Other Spread", "#d97706","OR"),
+}
+_OCNC_C_CROSS = "#8b5cf6"   # cross-crop colour
+
+
+def _build_ocnc_df(df_all_crops):
+    """OC/NC = All Spreading − Old Spreading − Other Spreading per category.
+    Cross-crop spreads land in All but CFTC never allocates them to Old or Other.
+    Result is clipped to >= 0 (guaranteed by CFTC allocation rules).
+    """
+    all_ = df_all_crops[df_all_crops["Crop"] == "All"].set_index("Date").sort_index()
+    old_ = df_all_crops[df_all_crops["Crop"] == "Old"].set_index("Date").sort_index()
+    new_ = df_all_crops[df_all_crops["Crop"] == "Other"].set_index("Date").sort_index()
+    common = all_.index.intersection(old_.index).intersection(new_.index)
+    if common.empty:
+        return pd.DataFrame()
+    rows = {}
+    for _lbl, (col, _clr, short) in _OCNC_CATS.items():
+        if col not in all_.columns:
+            continue
+        a  = all_.loc[common, col].astype(float)
+        o  = old_.loc[common, col].astype(float)  if col in old_.columns else pd.Series(0.0, index=common)
+        n  = new_.loc[common, col].astype(float)  if col in new_.columns else pd.Series(0.0, index=common)
+        oc = (a - o - n).clip(lower=0)
+        rows[f"{short}_All"]      = a  / 1000
+        rows[f"{short}_OldOld"]   = o  / 1000
+        rows[f"{short}_NewNew"]   = n  / 1000
+        rows[f"{short}_OCNC"]     = oc / 1000
+        rows[f"{short}_OCNC_pct"] = (oc / a.replace(0, np.nan) * 100).round(1)
+    return pd.DataFrame(rows, index=common).reset_index()
+
 def render_spreading(d, color, df_all_crops=None):
     st.markdown(
         "<p style='font-size:.78rem;color:#666;margin-bottom:8px'>"
@@ -934,6 +969,127 @@ def render_spreading(d, color, df_all_crops=None):
                             yaxis=dict(**_ax()),
                         )
                         st.plotly_chart(fig, width='stretch')
+
+    # ── OC/NC Cross-Crop Spreading ────────────────────────────────────────────
+    if df_all_crops is not None:
+        _ocnc = _build_ocnc_df(df_all_crops)
+        if not _ocnc.empty:
+            with st.expander("OC/NC Cross-Crop Spreading  ·  Decomposition", expanded=False):
+                st.markdown(
+                    "<p style='font-size:.76rem;color:#555;margin-bottom:10px'>"
+                    "<b>OC/NC = All Spreading − Old Spreading − Other Spreading</b>  ·  "
+                    "Cross-crop spreads (one leg old crop month, one leg new crop month) are captured "
+                    "in the <i>All</i> row but never allocated to Old or Other by the CFTC — "
+                    "they appear as the residual. Result is always ≥ 0 by construction.</p>",
+                    unsafe_allow_html=True)
+
+                # Latest snapshot table
+                latest_ocnc = _ocnc.sort_values("Date").iloc[-1]
+                latest_dt   = pd.to_datetime(latest_ocnc["Date"]).strftime("%d %b %Y")
+                st.markdown(
+                    f"<p style='font-size:.72rem;color:#888;margin-bottom:4px'>Latest — {latest_dt}</p>",
+                    unsafe_allow_html=True)
+
+                snap_rows = ""
+                for snap_lbl, (snap_col, snap_clr, short) in _OCNC_CATS.items():
+                    if f"{short}_All" not in _ocnc.columns:
+                        continue
+                    a      = latest_ocnc.get(f"{short}_All",      np.nan)
+                    oo     = latest_ocnc.get(f"{short}_OldOld",   np.nan)
+                    nn     = latest_ocnc.get(f"{short}_NewNew",   np.nan)
+                    ocnc_v = latest_ocnc.get(f"{short}_OCNC",     np.nan)
+                    pct    = latest_ocnc.get(f"{short}_OCNC_pct", np.nan)
+                    fk = lambda v: f"{v:,.1f}k" if pd.notna(v) else "—"
+                    fp = (f"<b style='color:{_OCNC_C_CROSS}'>{pct:.1f}%</b>"
+                          if pd.notna(pct) else "—")
+                    snap_rows += (
+                        f"<tr><td class='idx'>{snap_lbl}</td>"
+                        f"<td>{fk(a)}</td>"
+                        f"<td style='color:{C_OLD}'>{fk(oo)}</td>"
+                        f"<td style='color:{C_NEW}'>{fk(nn)}</td>"
+                        f"<td style='color:{_OCNC_C_CROSS};font-weight:700'>{fk(ocnc_v)}</td>"
+                        f"<td>{fp}</td></tr>"
+                    )
+                snap_hdr = (
+                    "<tr style='background:#f3f4f6'><th class='idx'>Category</th>"
+                    "<th>All (k)</th>"
+                    f"<th style='color:{C_OLD}'>Pure Old/Old (k)</th>"
+                    f"<th style='color:{C_NEW}'>Pure New/New (k)</th>"
+                    f"<th style='color:{_OCNC_C_CROSS}'>OC/NC Cross-crop (k)</th>"
+                    "<th>OC/NC %</th></tr>"
+                )
+                st.markdown(
+                    f"{_RECAP_CSS}<div style='overflow-x:auto;margin-bottom:14px'>"
+                    f"<table class='rtbl'><thead>{snap_hdr}</thead>"
+                    f"<tbody>{snap_rows}</tbody></table></div>",
+                    unsafe_allow_html=True)
+
+                # Category selector for stacked chart
+                avail_ocnc = [(lbl2, col2, clr2, sh)
+                              for lbl2, (col2, clr2, sh) in _OCNC_CATS.items()
+                              if f"{sh}_All" in _ocnc.columns]
+                sel_lbl = st.selectbox("Category", [x[0] for x in avail_ocnc], key="ocnc_cat_sel")
+                _, _, _, short_sel = next(x for x in avail_ocnc if x[0] == sel_lbl)
+
+                # Stacked area: Pure Old + Pure New + OC/NC = All
+                fig_stack = go.Figure()
+                for sub_col, sub_name, fill_clr in [
+                    (f"{short_sel}_OldOld", "Pure Old/Old",     C_OLD),
+                    (f"{short_sel}_NewNew", "Pure New/New",     C_NEW),
+                    (f"{short_sel}_OCNC",   "OC/NC Cross-crop", _OCNC_C_CROSS),
+                ]:
+                    if sub_col not in _ocnc.columns:
+                        continue
+                    r2, g2, b2 = int(fill_clr[1:3], 16), int(fill_clr[3:5], 16), int(fill_clr[5:7], 16)
+                    fig_stack.add_trace(go.Scatter(
+                        x=_ocnc["Date"], y=_ocnc[sub_col],
+                        name=sub_name, stackgroup="one",
+                        fillcolor=f"rgba({r2},{g2},{b2},0.50)",
+                        line=dict(color=fill_clr, width=0.8),
+                        hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>{sub_name}: %{{y:.1f}}k<extra></extra>",
+                    ))
+                if f"{short_sel}_All" in _ocnc.columns:
+                    fig_stack.add_trace(go.Scatter(
+                        x=_ocnc["Date"], y=_ocnc[f"{short_sel}_All"],
+                        name="All Spreading", mode="lines",
+                        line=dict(color="#374151", width=1.6, dash="dot"),
+                        hovertemplate="<b>%{x|%d %b %Y}</b><br>All: %{y:.1f}k<extra></extra>",
+                    ))
+                fig_stack.update_layout(
+                    **_BASE, height=340,
+                    title=dict(text=f"{sel_lbl}  ·  Spreading Decomposition  ·  k lots",
+                               font=dict(size=12, color="#374151"), x=0),
+                    margin=dict(l=50, r=20, t=42, b=70),
+                    legend=dict(orientation="h", y=-0.22, x=0.5, xanchor="center",
+                                font_size=10, bgcolor="rgba(0,0,0,0)"),
+                    xaxis=dict(**_ax(x=True), tickformat="%d %b '%y"),
+                    yaxis=dict(**_ax(), title_text="k lots", title_font_size=10),
+                )
+                st.plotly_chart(fig_stack, width='stretch')
+
+                # OC/NC % over time — all categories overlaid
+                fig_pct = go.Figure()
+                for lbl3, (col3, clr3, short3) in _OCNC_CATS.items():
+                    pct_col = f"{short3}_OCNC_pct"
+                    if pct_col not in _ocnc.columns:
+                        continue
+                    fig_pct.add_trace(go.Scatter(
+                        x=_ocnc["Date"], y=_ocnc[pct_col],
+                        name=lbl3, line=dict(color=clr3, width=2.0),
+                        hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>{lbl3} OC/NC: %{{y:.1f}}%<extra></extra>",
+                    ))
+                fig_pct.update_layout(
+                    **_BASE, height=280,
+                    title=dict(text="OC/NC as % of All Spreading  ·  by Category",
+                               font=dict(size=12, color="#374151"), x=0),
+                    margin=dict(l=50, r=20, t=42, b=70),
+                    legend=dict(orientation="h", y=-0.26, x=0.5, xanchor="center",
+                                font_size=10, bgcolor="rgba(0,0,0,0)"),
+                    xaxis=dict(**_ax(x=True), tickformat="%d %b '%y"),
+                    yaxis=dict(**_ax(), title_text="% of All Spreading",
+                               title_font_size=10, ticksuffix="%", range=[0, 100]),
+                )
+                st.plotly_chart(fig_pct, width='stretch')
 
 
 # ══════════════════════════════════════════════════════════════════════════════
