@@ -935,6 +935,7 @@ def render_spreading(d, color, df_all_crops=None):
     if df_all_crops is not None:
         old   = df_all_crops[df_all_crops["Crop"] == "Old"].set_index("Date").sort_index()
         other = df_all_crops[df_all_crops["Crop"] == "Other"].set_index("Date").sort_index()
+        _ocnc_on = _build_ocnc_df(df_all_crops)
         spread_cols_avail = [col for _, (col, _) in SPREAD_COLS.items()
                              if col in old.columns or col in other.columns]
         if spread_cols_avail and not old.empty and not other.empty:
@@ -949,6 +950,7 @@ def render_spreading(d, color, df_all_crops=None):
                 c1, c2, c3 = st.columns(3)
                 for ch, (lbl, col, clr) in zip([c1, c2, c3], avail):
                     with ch:
+                        short = _OCNC_CATS.get(lbl, (None, None, None))[2]
                         fig = go.Figure()
                         fig.add_trace(go.Scatter(
                             x=old.index, y=_ov(old, col), name="Old Crop",
@@ -958,6 +960,13 @@ def render_spreading(d, color, df_all_crops=None):
                             x=other.index, y=_ov(other, col), name="New Crop",
                             line=dict(color=C_NEW, width=2.0),
                             hovertemplate="<b>%{x|%d %b %y}</b><br>New: %{y:.1f}<extra></extra>"))
+                        if on_unit == "k lots" and short and not _ocnc_on.empty:
+                            ocnc_col = f"{short}_OCNC"
+                            if ocnc_col in _ocnc_on.columns:
+                                fig.add_trace(go.Scatter(
+                                    x=_ocnc_on["Date"], y=_ocnc_on[ocnc_col],
+                                    name="OC/NC", line=dict(color=_OCNC_C_CROSS, width=2.0),
+                                    hovertemplate="<b>%{x|%d %b %y}</b><br>OC/NC: %{y:.1f}k<extra></extra>"))
                         fig.update_layout(
                             **_BASE, height=300,
                             title=dict(text=f"{lbl} Spread  ·  Old vs New  ·  {on_unit}",
@@ -969,6 +978,48 @@ def render_spreading(d, color, df_all_crops=None):
                             yaxis=dict(**_ax()),
                         )
                         st.plotly_chart(fig, width='stretch')
+
+            # ── Old / New / OC·NC Seasonality ─────────────────────────────────
+            with st.expander("Old / New / OC·NC Spreading  ·  Seasonality", expanded=False):
+                _SEC_ROWS = [
+                    ("Old Crop",            "old",  C_OLD),
+                    ("New Crop",            "new",  C_NEW),
+                    ("OC/NC Cross-crop",    "ocnc", _OCNC_C_CROSS),
+                    ("Old − New Difference","diff", "#6b7280"),
+                ]
+                for sec_lbl, sec_key, sec_clr in _SEC_ROWS:
+                    st.markdown(
+                        f"<p style='font-size:.82rem;font-weight:600;color:#374151;"
+                        f"margin:14px 0 4px'>{sec_lbl}</p>", unsafe_allow_html=True)
+                    c1, c2, c3 = st.columns(3)
+                    for ch, (lbl, col, clr) in zip([c1, c2, c3], avail):
+                        with ch:
+                            short = _OCNC_CATS.get(lbl, (None, None, None))[2]
+                            if sec_key == "old":
+                                df_s = old.reset_index()[["Date", col]].copy()
+                                fig  = seasonal(df_s, col, C_OLD, f"{lbl}  ·  Old")
+                            elif sec_key == "new":
+                                df_s = other.reset_index()[["Date", col]].copy()
+                                fig  = seasonal(df_s, col, C_NEW, f"{lbl}  ·  New")
+                            elif sec_key == "ocnc" and short and not _ocnc_on.empty:
+                                ocnc_col = f"{short}_OCNC"
+                                if ocnc_col in _ocnc_on.columns:
+                                    # _ocnc_on values are k lots; seasonal() divides by 1000 → scale back
+                                    df_s = pd.DataFrame({
+                                        "Date": _ocnc_on["Date"],
+                                        ocnc_col: _ocnc_on[ocnc_col] * 1000,
+                                    })
+                                    fig = seasonal(df_s, ocnc_col, _OCNC_C_CROSS, f"{lbl}  ·  OC/NC")
+                                else:
+                                    fig = go.Figure().update_layout(**_BASE, height=340)
+                            elif sec_key == "diff" and col in old.columns and col in other.columns:
+                                common = old.index.intersection(other.index)
+                                diff_s = (old.loc[common, col] - other.loc[common, col]).reset_index()
+                                diff_s.columns = ["Date", col]
+                                fig = seasonal(diff_s, col, "#6b7280", f"{lbl}  ·  Old−New Diff")
+                            else:
+                                fig = go.Figure().update_layout(**_BASE, height=340)
+                            st.plotly_chart(fig, width='stretch')
 
     # ── OC/NC Cross-Crop Spreading ────────────────────────────────────────────
     if df_all_crops is not None:
