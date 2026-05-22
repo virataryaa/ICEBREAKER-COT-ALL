@@ -106,7 +106,7 @@ def _ax(x=False):
              showline=True, linecolor="rgba(0,0,0,0.08)", linewidth=1,
              tickfont=dict(size=10, color="#666"))
     if x:
-        b.update(showgrid=False, tickangle=-25)
+        b.update(showgrid=False, tickangle=-35, nticks=7)
     return b
 
 
@@ -408,7 +408,7 @@ def timeseries(d, series, title, ylabel, height=360, price=True):
         margin=dict(l=52, r=55, t=42, b=72),
         legend=dict(orientation="h", y=-0.22, x=0.5, xanchor="center",
                     font_size=10, bgcolor="rgba(0,0,0,0)"),
-        xaxis=dict(**_ax(x=True), tickformat="%b '%y"),
+        xaxis=dict(**_ax(x=True), tickformat="%d %b '%y"),
     )
     fig.update_yaxes(title_text=ylabel, title_font_size=10, secondary_y=False, **_ax())
     fig.update_yaxes(title_text="Rollex Px", title_font_size=10, secondary_y=True,
@@ -1328,7 +1328,7 @@ def render_traders(d, report, color):
         title=dict(text=f"Traders in Each Category — {group}",font=dict(size=12,color="#333"),x=0),
         margin=dict(l=50,r=20,t=42,b=70),
         legend=dict(orientation="h",y=-0.22,x=0.5,xanchor="center",font_size=10),
-        xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
+        xaxis=dict(**_ax(x=True),tickformat="%d %b '%y"),
         yaxis=dict(**_ax(),title_text="# traders",title_font_size=10))
     st.plotly_chart(fig, width='stretch')
 
@@ -1346,7 +1346,7 @@ def render_traders(d, report, color):
                 fb.update_layout(**_BASE,height=240,
                     title=dict(text=f"{name} — Δ",font=dict(size=10,color="#444"),x=0),
                     margin=dict(l=40,r=8,t=32,b=60),showlegend=False,
-                    xaxis=dict(**_ax(x=True),tickformat="%d %b"),
+                    xaxis=dict(**_ax(x=True),tickformat="%d %b '%y"),
                     yaxis=dict(**_ax()))
                 st.plotly_chart(fb, width='stretch')
 
@@ -2005,7 +2005,7 @@ def render_concentration(d, color):
                        font=dict(size=12,color="#333"),x=0),
             margin=dict(l=50,r=20,t=42,b=70),
             legend=dict(orientation="h",y=-0.22,x=0.5,xanchor="center",font_size=10),
-            xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
+            xaxis=dict(**_ax(x=True),tickformat="%d %b '%y"),
             yaxis=dict(**_ax(),title_text="% of OI",title_font_size=10))
         st.plotly_chart(fig, width='stretch')
 
@@ -2060,7 +2060,7 @@ def render_exposure(d, commodity, color):
             **_BASE, height=320,
             title=dict(text=f"{nc} — Nominal Exposure  ·  $M",font=dict(size=12,color="#333"),x=0),
             margin=dict(l=60,r=20,t=42,b=50), showlegend=False,
-            xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
+            xaxis=dict(**_ax(x=True),tickformat="%d %b '%y"),
             yaxis=dict(**_ax(),title_text="$M",title_font_size=10))
         st.plotly_chart(fig, width='stretch')
 
@@ -2590,7 +2590,7 @@ def render_comparison(commodity, start_date, end_date, color):
                    font=dict(size=12,color="#333"), x=0),
         margin=dict(l=52,r=20,t=42,b=72),
         legend=dict(orientation="h",y=-0.22,x=0.5,xanchor="center",font_size=10),
-        xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
+        xaxis=dict(**_ax(x=True),tickformat="%d %b '%y"),
     )
     fig_ts.update_yaxes(title_text=ylabel, title_font_size=10, **_ax())
     st.plotly_chart(fig_ts, width='stretch')
@@ -2610,7 +2610,7 @@ def render_comparison(commodity, start_date, end_date, color):
             title=dict(text=f"Gap: {cfg['cit_label']} minus {cfg['dag_label']}  ·  k lots",
                        font=dict(size=11,color="#444"), x=0),
             margin=dict(l=50,r=12,t=36,b=68), showlegend=False,
-            xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
+            xaxis=dict(**_ax(x=True),tickformat="%d %b '%y"),
             yaxis=dict(**_ax(),title_text="k lots",title_font_size=10),
         )
         st.plotly_chart(fig_gap, width='stretch')
@@ -2641,7 +2641,7 @@ def render_comparison(commodity, start_date, end_date, color):
                     title=dict(text=f"{lbl} positions  ·  {ylabel}", font=dict(size=11,color="#444"), x=0),
                     margin=dict(l=50,r=12,t=36,b=68), showlegend=True,
                     legend=dict(orientation="h",y=-0.32,x=0.5,xanchor="center",font_size=10),
-                    xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
+                    xaxis=dict(**_ax(x=True),tickformat="%d %b '%y"),
                     yaxis=dict(**_ax(),title_text=ylabel,title_font_size=10))
                 st.plotly_chart(fig_ls, width='stretch')
 
@@ -2662,7 +2662,7 @@ def render_comparison(commodity, start_date, end_date, color):
                 title=dict(text="Rolling 52-week Correlation — CIT vs Disagg",
                            font=dict(size=11,color="#444"), x=0),
                 margin=dict(l=50,r=12,t=36,b=50),
-                xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
+                xaxis=dict(**_ax(x=True),tickformat="%d %b '%y"),
                 yaxis=dict(**_ax(),title_text="Correlation",title_font_size=10,range=[-1.1,1.1]))
             st.plotly_chart(fig_rc, width='stretch')
 
@@ -2865,7 +2865,7 @@ def render_combined(commodity, start_date, end_date, color):
                 margin=dict(l=52, r=60, t=40, b=72),
                 legend=dict(orientation="h", y=-0.22, x=0.5, xanchor="center",
                             font_size=10, bgcolor="rgba(0,0,0,0)"),
-                xaxis=dict(**_ax(x=True), tickformat="%b '%y"),
+                xaxis=dict(**_ax(x=True), tickformat="%d %b '%y"),
                 yaxis=dict(**_ax(), title_text="k lots", title_font_size=10),
                 yaxis2={**_ax(), "title_text": "Price", "title_font_size": 10,
                         "overlaying": "y", "side": "right", "showgrid": False})
@@ -2917,7 +2917,7 @@ def render_combined(commodity, start_date, end_date, color):
             margin=dict(l=52, r=12, t=40, b=60), showlegend=True,
             legend=dict(orientation="h", y=-0.22, x=0.5, xanchor="center",
                         font_size=10, bgcolor="rgba(0,0,0,0)"),
-            xaxis=dict(**_ax(x=True), tickformat="%b '%y"),
+            xaxis=dict(**_ax(x=True), tickformat="%d %b '%y"),
             yaxis=dict(**_ax(), title_text="k lots", title_font_size=10))
         st.plotly_chart(fig_rel, width='stretch')
 
@@ -2957,7 +2957,7 @@ def render_combined(commodity, start_date, end_date, color):
                        font=dict(size=12,color="#374151"), x=0),
             margin=dict(l=52,r=60,t=44,b=72),
             legend=dict(orientation="h",y=-0.2,x=0.5,xanchor="center",font_size=10,bgcolor="rgba(0,0,0,0)"),
-            xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
+            xaxis=dict(**_ax(x=True),tickformat="%d %b '%y"),
             yaxis=dict(**_ax(),title_text="k lots",title_font_size=10),
             yaxis2={**_ax(),"title_text":"Price","title_font_size":10,"overlaying":"y","side":"right","showgrid":False})
         st.plotly_chart(fig, width='stretch')
@@ -2970,7 +2970,7 @@ def render_combined(commodity, start_date, end_date, color):
         fig2.update_layout(**_BASE, height=240,
             title=dict(text="Combined Net — weekly Δ  ·  k lots",font=dict(size=11,color="#444"),x=0),
             margin=dict(l=50,r=12,t=36,b=60), showlegend=False,
-            xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
+            xaxis=dict(**_ax(x=True),tickformat="%d %b '%y"),
             yaxis=dict(**_ax(),title_text="Δ k lots",title_font_size=10))
         st.plotly_chart(fig2, width='stretch')
 
@@ -2999,7 +2999,7 @@ def render_combined(commodity, start_date, end_date, color):
                     title=dict(text=f"{comm} Spec · {leg_lbl}  ·  k lots",font=dict(size=11,color="#374151"),x=0),
                     margin=dict(l=50,r=12,t=40,b=72),
                     legend=dict(orientation="h",y=-0.24,x=0.5,xanchor="center",font_size=10,bgcolor="rgba(0,0,0,0)"),
-                    xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
+                    xaxis=dict(**_ax(x=True),tickformat="%d %b '%y"),
                     yaxis=dict(**_ax(),title_text="k lots",title_font_size=10))
                 st.plotly_chart(fig, width='stretch')
 
@@ -3020,7 +3020,7 @@ def render_combined(commodity, start_date, end_date, color):
             fig.update_layout(**_BASE, height=280,
                 title=dict(text=f"{title}  ·  k lots",font=dict(size=10,color="#444"),x=0),
                 margin=dict(l=44,r=8,t=36,b=52), showlegend=False,
-                xaxis=dict(**_ax(x=True),tickformat="%b '%y"),
+                xaxis=dict(**_ax(x=True),tickformat="%d %b '%y"),
                 yaxis=dict(**_ax(),title_text="Δ k lots",title_font_size=9))
             with ch: st.plotly_chart(fig, width='stretch')
 
