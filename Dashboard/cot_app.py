@@ -1028,7 +1028,7 @@ def render_spreading(d, color, df_all_crops=None):
                 sel_lbl = st.selectbox("Category", [x[0] for x in avail_ocnc], key="ocnc_cat_sel")
                 _, _, _, short_sel = next(x for x in avail_ocnc if x[0] == sel_lbl)
 
-                # Stacked area: Pure Old + Pure New + OC/NC = All
+                # Stacked bar: Pure Old + Pure New + OC/NC = All
                 fig_stack = go.Figure()
                 for sub_col, sub_name, fill_clr in [
                     (f"{short_sel}_OldOld", "Pure Old/Old",     C_OLD),
@@ -1038,11 +1038,10 @@ def render_spreading(d, color, df_all_crops=None):
                     if sub_col not in _ocnc.columns:
                         continue
                     r2, g2, b2 = int(fill_clr[1:3], 16), int(fill_clr[3:5], 16), int(fill_clr[5:7], 16)
-                    fig_stack.add_trace(go.Scatter(
+                    fig_stack.add_trace(go.Bar(
                         x=_ocnc["Date"], y=_ocnc[sub_col],
-                        name=sub_name, stackgroup="one",
-                        fillcolor=f"rgba({r2},{g2},{b2},0.50)",
-                        line=dict(color=fill_clr, width=0.8),
+                        name=sub_name,
+                        marker=dict(color=f"rgba({r2},{g2},{b2},0.80)", line=dict(width=0)),
                         hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>{sub_name}: %{{y:.1f}}k<extra></extra>",
                     ))
                 if f"{short_sel}_All" in _ocnc.columns:
@@ -1053,10 +1052,11 @@ def render_spreading(d, color, df_all_crops=None):
                         hovertemplate="<b>%{x|%d %b %Y}</b><br>All: %{y:.1f}k<extra></extra>",
                     ))
                 fig_stack.update_layout(
-                    **_BASE, height=340,
+                    **_BASE, height=340, barmode="stack",
                     title=dict(text=f"{sel_lbl}  ·  Spreading Decomposition  ·  k lots",
                                font=dict(size=12, color="#374151"), x=0),
                     margin=dict(l=50, r=20, t=42, b=70),
+                    bargap=0.15,
                     legend=dict(orientation="h", y=-0.22, x=0.5, xanchor="center",
                                 font_size=10, bgcolor="rgba(0,0,0,0)"),
                     xaxis=dict(**_ax(x=True), tickformat="%d %b '%y"),
