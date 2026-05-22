@@ -942,7 +942,6 @@ def render_spreading(d, color, df_all_crops=None, commodity=""):
         if spread_cols_avail and not old.empty and not other.empty:
             with st.expander("Old vs New Crop  ·  Spreading", expanded=False):
                 on_unit = st.radio("Unit", ["k lots", "% of OI"], horizontal=True, key="spread_on_unit")
-                st.caption("% of OI: Old, New and OC/NC are all divided by All Crop Total OI — same base, directly comparable.")
                 # denominator is always All Crop Total OI so Old, New and OC/NC are on the same base
                 _all_oi = all_["Total OI"].replace(0, np.nan) if "Total OI" in all_.columns else None
                 def _ov(df, col):
