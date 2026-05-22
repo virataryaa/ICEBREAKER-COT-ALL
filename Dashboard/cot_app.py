@@ -938,14 +938,28 @@ def render_spreading(d, color, df_all_crops=None):
         _ocnc_on = _build_ocnc_df(df_all_crops)
         spread_cols_avail = [col for _, (col, _) in SPREAD_COLS.items()
                              if col in old.columns or col in other.columns]
+        all_  = df_all_crops[df_all_crops["Crop"] == "All"].set_index("Date").sort_index()
         if spread_cols_avail and not old.empty and not other.empty:
             with st.expander("Old vs New Crop  ·  Spreading", expanded=False):
-                on_unit = st.radio("Unit", ["k lots", "% of OI"], horizontal=True, key="spread_on_unit")
+                _col_r, _col_h = st.columns([3, 1])
+                with _col_r:
+                    on_unit = st.radio("Unit", ["k lots", "% of OI"], horizontal=True, key="spread_on_unit")
+                with _col_h:
+                    st.markdown(
+                        "<span title='% of OI uses All Crop Total OI as the common denominator for "
+                        "all three series — Old, New and OC/NC spreading are each divided by the same "
+                        "All Crop OI so they are directly comparable on one axis.'>"
+                        "<span style='font-size:.78rem;color:#6b7280;cursor:help;border-bottom:"
+                        "1px dashed #9ca3af'>ℹ how % is calc'd</span></span>",
+                        unsafe_allow_html=True)
+                # denominator is always All Crop Total OI so Old, New and OC/NC are on the same base
+                _all_oi = all_["Total OI"].replace(0, np.nan) if "Total OI" in all_.columns else None
                 def _ov(df, col):
                     if col not in df.columns: return pd.Series(dtype=float)
                     if on_unit == "k lots": return df[col] / 1000
-                    oi = df["Total OI"].replace(0, np.nan) if "Total OI" in df.columns else None
-                    return (df[col] / oi * 100).round(2) if oi is not None else df[col] / 1000
+                    if _all_oi is not None:
+                        return (df[col].reindex(_all_oi.index) / _all_oi * 100).round(2)
+                    return df[col] / 1000
 
                 c1, c2, c3 = st.columns(3)
                 for ch, (lbl, col, clr) in zip([c1, c2, c3], avail):
@@ -960,13 +974,18 @@ def render_spreading(d, color, df_all_crops=None):
                             x=other.index, y=_ov(other, col), name="New Crop",
                             line=dict(color=C_NEW, width=2.0),
                             hovertemplate="<b>%{x|%d %b %y}</b><br>New: %{y:.1f}<extra></extra>"))
-                        if on_unit == "k lots" and short and not _ocnc_on.empty:
+                        if short and not _ocnc_on.empty:
                             ocnc_col = f"{short}_OCNC"
                             if ocnc_col in _ocnc_on.columns:
+                                if on_unit == "k lots":
+                                    ocnc_y = _ocnc_on.set_index("Date")[ocnc_col]
+                                else:
+                                    ocnc_raw = _ocnc_on.set_index("Date")[ocnc_col] * 1000
+                                    ocnc_y   = (ocnc_raw.reindex(_all_oi.index) / _all_oi * 100).round(2) if _all_oi is not None else ocnc_raw / 1000
                                 fig.add_trace(go.Scatter(
-                                    x=_ocnc_on["Date"], y=_ocnc_on[ocnc_col],
+                                    x=ocnc_y.index, y=ocnc_y.values,
                                     name="OC/NC", line=dict(color=_OCNC_C_CROSS, width=2.0),
-                                    hovertemplate="<b>%{x|%d %b %y}</b><br>OC/NC: %{y:.1f}k<extra></extra>"))
+                                    hovertemplate="<b>%{x|%d %b %y}</b><br>OC/NC: %{y:.1f}<extra></extra>"))
                         fig.update_layout(
                             **_BASE, height=300,
                             title=dict(text=f"{lbl} Spread  ·  Old vs New  ·  {on_unit}",
