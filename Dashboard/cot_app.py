@@ -889,7 +889,7 @@ def _build_ocnc_df(df_all_crops):
         rows[f"{short}_OCNC_pct"] = (oc / a.replace(0, np.nan) * 100).round(1)
     return pd.DataFrame(rows, index=common).reset_index()
 
-def render_spreading(d, color, df_all_crops=None):
+def render_spreading(d, color, df_all_crops=None, commodity=""):
     st.markdown(
         "<p style='font-size:.78rem;color:#666;margin-bottom:8px'>"
         "Spreading = offsetting long/short positions in different delivery months. "
@@ -941,17 +941,8 @@ def render_spreading(d, color, df_all_crops=None):
         all_  = df_all_crops[df_all_crops["Crop"] == "All"].set_index("Date").sort_index()
         if spread_cols_avail and not old.empty and not other.empty:
             with st.expander("Old vs New Crop  ·  Spreading", expanded=False):
-                _col_r, _col_h = st.columns([3, 1])
-                with _col_r:
-                    on_unit = st.radio("Unit", ["k lots", "% of OI"], horizontal=True, key="spread_on_unit")
-                with _col_h:
-                    st.markdown(
-                        "<span title='% of OI uses All Crop Total OI as the common denominator for "
-                        "all three series — Old, New and OC/NC spreading are each divided by the same "
-                        "All Crop OI so they are directly comparable on one axis.'>"
-                        "<span style='font-size:.78rem;color:#6b7280;cursor:help;border-bottom:"
-                        "1px dashed #9ca3af'>ℹ how % is calc'd</span></span>",
-                        unsafe_allow_html=True)
+                on_unit = st.radio("Unit", ["k lots", "% of OI"], horizontal=True, key="spread_on_unit")
+                st.caption("% of OI: Old, New and OC/NC are all divided by All Crop Total OI — same base, directly comparable.")
                 # denominator is always All Crop Total OI so Old, New and OC/NC are on the same base
                 _all_oi = all_["Total OI"].replace(0, np.nan) if "Total OI" in all_.columns else None
                 def _ov(df, col):
@@ -1000,45 +991,68 @@ def render_spreading(d, color, df_all_crops=None):
 
             # ── Old / New / OC·NC Seasonality ─────────────────────────────────
             with st.expander("Old / New / OC·NC Spreading  ·  Seasonality", expanded=False):
-                _SEC_ROWS = [
-                    ("Old Crop",            "old",  C_OLD),
-                    ("New Crop",            "new",  C_NEW),
-                    ("OC/NC Cross-crop",    "ocnc", _OCNC_C_CROSS),
-                    ("Old − New Difference","diff", "#6b7280"),
+                _forced_sm = {"CT": 7, "KC": 9, "CC": 9, "SB": 9}
+                _def_sm    = _forced_sm.get(commodity, CROP_START_MONTH)
+                sm = st.selectbox(
+                    "Crop year starts in", list(range(1, 13)),
+                    index=_def_sm - 1, format_func=lambda m: _MONTHS[m - 1],
+                    key="spread_seas_sm")
+                st.markdown(
+                    f"<p style='font-size:.75rem;color:#9ca3af;margin:0 0 10px'>"
+                    f"Each line = one crop year  ·  Bold = current ({_current_crop_year_label(sm)})  ·  Shaded = 25–75th pct</p>",
+                    unsafe_allow_html=True)
+
+                # Build crop-year aligned wide DataFrame
+                _cidx    = old.index.intersection(other.index)
+                _oidx    = _ocnc_on.set_index("Date") if not _ocnc_on.empty else pd.DataFrame()
+                _sp_rows = {"Date": _cidx}
+                for _l2, _c2, _ in avail:
+                    _s2 = _OCNC_CATS.get(_l2, (None, None, None))[2]
+                    if not _s2: continue
+                    _ov2 = old.loc[_cidx, _c2]   if _c2 in old.columns   else pd.Series(0.0, index=_cidx)
+                    _nv2 = other.loc[_cidx, _c2] if _c2 in other.columns else pd.Series(0.0, index=_cidx)
+                    _oc2 = (_oidx.loc[_cidx, f"{_s2}_OCNC"] * 1000
+                            if not _oidx.empty and f"{_s2}_OCNC" in _oidx.columns
+                            else pd.Series(0.0, index=_cidx))
+                    _sp_rows[f"{_s2}_Old"]  = _ov2
+                    _sp_rows[f"{_s2}_New"]  = _nv2
+                    _sp_rows[f"{_s2}_OCNC"] = _oc2.reindex(_cidx).fillna(0)
+                    _sp_rows[f"{_s2}_Diff"] = _ov2 - _nv2
+                _wsp = pd.DataFrame(_sp_rows).reset_index(drop=True)
+                _wsp["CropYear"] = pd.to_datetime(_wsp["Date"]).apply(lambda d: _crop_year_label(d, sm))
+                _wsp["CropWeek"] = pd.to_datetime(_wsp["Date"]).apply(lambda d: _crop_week_num(d, sm))
+
+                def _spsc(metric, title, accent):
+                    return _seas_chart(_wsp, metric, title, accent, ylabel="k lots", by_week=False, sm=sm)
+
+                # Rows = trader category (MM → Other Rept → Swap), columns = Old | New | OC/NC
+                _CAT_ORD = [
+                    ("Managed Money", "MM",   C_NET),
+                    ("Other Rept",    "OR",   "#d97706"),
+                    ("Swap Dealers",  "Swap", "#7c3aed"),
                 ]
-                for sec_lbl, sec_key, sec_clr in _SEC_ROWS:
+                for _clbl, _sh, _cc in _CAT_ORD:
+                    if f"{_sh}_Old" not in _wsp.columns:
+                        continue
                     st.markdown(
-                        f"<p style='font-size:.82rem;font-weight:600;color:#374151;"
-                        f"margin:14px 0 4px'>{sec_lbl}</p>", unsafe_allow_html=True)
+                        f"<div style='font-size:.78rem;font-weight:700;color:#374151;"
+                        f"margin:14px 0 4px;letter-spacing:.03em'>{_clbl.upper()}</div>",
+                        unsafe_allow_html=True)
                     c1, c2, c3 = st.columns(3)
-                    for ch, (lbl, col, clr) in zip([c1, c2, c3], avail):
-                        with ch:
-                            short = _OCNC_CATS.get(lbl, (None, None, None))[2]
-                            if sec_key == "old":
-                                df_s = old.reset_index()[["Date", col]].copy()
-                                fig  = seasonal(df_s, col, C_OLD, f"{lbl}  ·  Old")
-                            elif sec_key == "new":
-                                df_s = other.reset_index()[["Date", col]].copy()
-                                fig  = seasonal(df_s, col, C_NEW, f"{lbl}  ·  New")
-                            elif sec_key == "ocnc" and short and not _ocnc_on.empty:
-                                ocnc_col = f"{short}_OCNC"
-                                if ocnc_col in _ocnc_on.columns:
-                                    # _ocnc_on values are k lots; seasonal() divides by 1000 → scale back
-                                    df_s = pd.DataFrame({
-                                        "Date": _ocnc_on["Date"],
-                                        ocnc_col: _ocnc_on[ocnc_col] * 1000,
-                                    })
-                                    fig = seasonal(df_s, ocnc_col, _OCNC_C_CROSS, f"{lbl}  ·  OC/NC")
-                                else:
-                                    fig = go.Figure().update_layout(**_BASE, height=340)
-                            elif sec_key == "diff" and col in old.columns and col in other.columns:
-                                common = old.index.intersection(other.index)
-                                diff_s = (old.loc[common, col] - other.loc[common, col]).reset_index()
-                                diff_s.columns = ["Date", col]
-                                fig = seasonal(diff_s, col, "#6b7280", f"{lbl}  ·  Old−New Diff")
-                            else:
-                                fig = go.Figure().update_layout(**_BASE, height=340)
-                            st.plotly_chart(fig, width='stretch')
+                    with c1: st.plotly_chart(_spsc(f"{_sh}_Old",  f"{_clbl}  ·  Old Crop  ·  k lots",  C_OLD),         width='stretch')
+                    with c2: st.plotly_chart(_spsc(f"{_sh}_New",  f"{_clbl}  ·  New Crop  ·  k lots",  C_NEW),         width='stretch')
+                    with c3: st.plotly_chart(_spsc(f"{_sh}_OCNC", f"{_clbl}  ·  OC/NC  ·  k lots",     _OCNC_C_CROSS), width='stretch')
+
+                # Old − New difference row
+                st.markdown(
+                    "<div style='font-size:.78rem;font-weight:700;color:#374151;"
+                    "margin:14px 0 4px;letter-spacing:.03em'>OLD − NEW DIFFERENCE</div>",
+                    unsafe_allow_html=True)
+                dc1, dc2, dc3 = st.columns(3)
+                for _dc, (_clbl, _sh, _cc) in zip([dc1, dc2, dc3], _CAT_ORD):
+                    with _dc:
+                        if f"{_sh}_Diff" in _wsp.columns:
+                            st.plotly_chart(_spsc(f"{_sh}_Diff", f"{_clbl}  ·  Old−New Diff  ·  k lots", "#6b7280"), width='stretch')
 
     # ── OC/NC Cross-Crop Spreading ────────────────────────────────────────────
     if df_all_crops is not None:
@@ -1226,7 +1240,7 @@ def _seas_chart(wide, metric, title, accent, ylabel="k lots", by_week=True, sm=C
     if cur in pivot.columns:
         cy = pivot[cur].dropna()
         fig.add_trace(go.Scatter(x=cy.index, y=cy.values, mode="lines+markers",
-            name=str(cur), line=dict(color=C_OLD, width=2.6), marker=dict(size=5, color=C_OLD)))
+            name=str(cur), line=dict(color=accent, width=2.6), marker=dict(size=5, color=accent)))
     fig.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.12)")
     if by_week:
         xticks = dict(tickvals=list(MONTH_TICKS.keys()), ticktext=list(MONTH_TICKS.values()))
@@ -4127,8 +4141,8 @@ def _tab_commercial(d, report, color):
     render_commercial(d, report, color)
 
 @st.fragment
-def _tab_spreading(d, color, df_all_crops=None):
-    render_spreading(d, color, df_all_crops)
+def _tab_spreading(d, color, df_all_crops=None, commodity=""):
+    render_spreading(d, color, df_all_crops, commodity)
 
 @st.fragment
 def _tab_old_new(d_crops, color, commodity=""):
@@ -4178,7 +4192,7 @@ with tabs[3]:  _tab_commercial(df, report, color)
 
 with tabs[4]:  # Spreading
     if report == "Disagg" and not is_options:
-        _tab_spreading(df, color, df_all_crops)
+        _tab_spreading(df, color, df_all_crops, commodity)
     else:
         _na("Spreading positions are only available in the Disaggregated report (Fut or F&O).")
 
