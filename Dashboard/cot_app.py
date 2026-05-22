@@ -977,10 +977,7 @@ def render_spreading(d, color, df_all_crops=None):
             with st.expander("OC/NC Cross-Crop Spreading  ·  Decomposition", expanded=False):
                 st.markdown(
                     "<p style='font-size:.76rem;color:#555;margin-bottom:10px'>"
-                    "<b>OC/NC = All Spreading − Old Spreading − Other Spreading</b>  ·  "
-                    "Cross-crop spreads (one leg old crop month, one leg new crop month) are captured "
-                    "in the <i>All</i> row but never allocated to Old or Other by the CFTC — "
-                    "they appear as the residual. Result is always ≥ 0 by construction.</p>",
+                    "<b>OC/NC = All Spreading − Old Spreading − Other Spreading</b></p>",
                     unsafe_allow_html=True)
 
                 # Latest snapshot table
