@@ -393,7 +393,7 @@ def _add_price(fig, d, secondary_y=True):
     fig.add_trace(go.Scatter(
         x=d["Date"], y=d["Px"], name="Rollex Px",
         line=dict(color=C_PRICE, width=1.2, dash="dot"), opacity=0.65,
-        hovertemplate="<b>%{x|%b %Y}</b><br>Rollex Px: %{y:.2f}<extra></extra>",
+        hovertemplate="<b>%{x|%d %b %Y}</b><br>Rollex Px: %{y:.2f}<extra></extra>",
     ), secondary_y=secondary_y)
 
 def timeseries(d, series, title, ylabel, height=360, price=True):
@@ -714,20 +714,20 @@ def render_spec(d, report, color):
     if lc in d.columns:
         traces.append({"trace": go.Scatter(x=d["Date"], y=_get_y(d, lc, unit), name="Long",
             line=dict(color=C_LONG, width=2.0),
-            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Long: %{{y:.1f}}{suffix}<extra></extra>")})
+            hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>Long: %{{y:.1f}}{suffix}<extra></extra>")})
     if sc in d.columns:
         traces.append({"trace": go.Scatter(x=d["Date"], y=_get_y(d, sc, unit), name="Short",
             line=dict(color=C_SHORT, width=2.0),
-            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Short: %{{y:.1f}}{suffix}<extra></extra>")})
+            hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>Short: %{{y:.1f}}{suffix}<extra></extra>")})
     if nc in d.columns:
         traces.append({"trace": go.Scatter(x=d["Date"], y=_get_y(d, nc, unit), name="Net",
             fill="tozeroy", fillcolor="rgba(26,86,219,0.09)",
             line=dict(color=C_NET, width=2.2),
-            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Net: %{{y:.1f}}{suffix}<extra></extra>")})
+            hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>Net: %{{y:.1f}}{suffix}<extra></extra>")})
     if spc and spc in d.columns:
         traces.append({"trace": go.Scatter(x=d["Date"], y=_get_y(d, spc, unit), name="Spread",
             line=dict(color="#94a3b8", width=1.4, dash="dot"),
-            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Spread: %{{y:.1f}}{suffix}<extra></extra>")})
+            hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>Spread: %{{y:.1f}}{suffix}<extra></extra>")})
     st.plotly_chart(timeseries(d, traces, f"{cat}  ·  {ylabel}", ylabel), width='stretch')
 
     # % of Total OI chart
@@ -739,18 +739,18 @@ def render_spec(d, report, color):
                 pct_traces.append({"trace": go.Scatter(
                     x=d["Date"], y=(d[col] / oi * 100).round(2), name=f"{name} %",
                     line=dict(color=clr, width=2.0),
-                    hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{name}: %{{y:.1f}}%<extra></extra>")})
+                    hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>{name}: %{{y:.1f}}%<extra></extra>")})
         if nc in d.columns:
             pct_traces.append({"trace": go.Scatter(
                 x=d["Date"], y=(d[nc] / oi * 100).round(2), name="Net %",
                 fill="tozeroy", fillcolor="rgba(26,86,219,0.09)",
                 line=dict(color=C_NET, width=2.2),
-                hovertemplate="<b>%{x|%b %Y}</b><br>Net: %{y:.1f}%<extra></extra>")})
+                hovertemplate="<b>%{x|%d %b %Y}</b><br>Net: %{y:.1f}%<extra></extra>")})
         if spc and spc in d.columns:
             pct_traces.append({"trace": go.Scatter(
                 x=d["Date"], y=(d[spc] / oi * 100).round(2), name="Spread %",
                 line=dict(color="#94a3b8", width=1.4, dash="dot"),
-                hovertemplate="<b>%{x|%b %Y}</b><br>Spread: %{y:.1f}%<extra></extra>")})
+                hovertemplate="<b>%{x|%d %b %Y}</b><br>Spread: %{y:.1f}%<extra></extra>")})
         if pct_traces:
             st.plotly_chart(timeseries(d, pct_traces, f"{cat}  ·  % of Total OI", "% of OI"), width='stretch')
 
@@ -803,12 +803,12 @@ def render_commercial(d, report, color):
         if col in d.columns:
             traces.append({"trace": go.Scatter(x=d["Date"], y=_get_y(d, col, unit), name=name,
                 line=dict(color=clr, width=2.0),
-                hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{name}: %{{y:.1f}}{suffix}<extra></extra>")})
+                hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>{name}: %{{y:.1f}}{suffix}<extra></extra>")})
     if nc in d.columns:
         traces.append({"trace": go.Scatter(x=d["Date"], y=_get_y(d, nc, unit), name="Net",
             fill="tozeroy", fillcolor="rgba(26,86,219,0.07)",
             line=dict(color=C_NET, width=2.2),
-            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Net: %{{y:.1f}}{suffix}<extra></extra>")})
+            hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>Net: %{{y:.1f}}{suffix}<extra></extra>")})
     st.plotly_chart(timeseries(d, traces, f"{lbl}  ·  {ylabel}", ylabel), width='stretch')
 
     # % of Total OI chart
@@ -820,13 +820,13 @@ def render_commercial(d, report, color):
                 pct_traces.append({"trace": go.Scatter(
                     x=d["Date"], y=(d[col] / oi * 100).round(2), name=f"{name} %",
                     line=dict(color=clr, width=2.0),
-                    hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{name}: %{{y:.1f}}%<extra></extra>")})
+                    hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>{name}: %{{y:.1f}}%<extra></extra>")})
         if nc in d.columns:
             pct_traces.append({"trace": go.Scatter(
                 x=d["Date"], y=(d[nc] / oi * 100).round(2), name="Net %",
                 fill="tozeroy", fillcolor="rgba(26,86,219,0.07)",
                 line=dict(color=C_NET, width=2.2),
-                hovertemplate="<b>%{x|%b %Y}</b><br>Net: %{y:.1f}%<extra></extra>")})
+                hovertemplate="<b>%{x|%d %b %Y}</b><br>Net: %{y:.1f}%<extra></extra>")})
         if pct_traces:
             st.plotly_chart(timeseries(d, pct_traces, f"{lbl}  ·  % of Total OI", "% of OI"), width='stretch')
 
@@ -877,7 +877,7 @@ def render_spreading(d, color, df_all_crops=None):
         y = _get_y(d,col,unit)
         traces.append({"trace": go.Scatter(x=d["Date"],y=y,name=lbl,
             line=dict(color=clr,width=2.0),
-            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{lbl}: %{{y:.1f}}<extra></extra>")})
+            hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>{lbl}: %{{y:.1f}}<extra></extra>")})
     st.plotly_chart(timeseries(d,traces,f"Spreading by Category  ·  {ylabel}",ylabel), width='stretch')
 
     # Weekly change per category
@@ -1322,7 +1322,7 @@ def render_traders(d, report, color):
     for col, name, clr in zip(sel_cols, nice, TRADER_COLORS):
         fig.add_trace(go.Scatter(x=d["Date"], y=d[col], name=name,
             line=dict(color=clr,width=2.0),
-            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{name}: %{{y:.0f}}<extra></extra>"))
+            hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>{name}: %{{y:.0f}}<extra></extra>"))
     fig.update_layout(
         **_BASE, height=360,
         title=dict(text=f"Traders in Each Category — {group}",font=dict(size=12,color="#333"),x=0),
@@ -1998,7 +1998,7 @@ def render_concentration(d, color):
             fig.add_trace(go.Scatter(x=d["Date"], y=d[col],
                 name=col.replace("Conc ",""),
                 line=dict(color=CONC_PALETTE[i%8], width=2.0, dash=CONC_DASH[i%8]),
-                hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{col}: %{{y:.1f}}%<extra></extra>"))
+                hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>{col}: %{{y:.1f}}%<extra></extra>"))
         fig.update_layout(
             **_BASE, height=360,
             title=dict(text="Concentration — % of OI held by largest traders",
@@ -2055,7 +2055,7 @@ def render_exposure(d, commodity, color):
             fill="tozeroy",
             fillcolor=f"rgba({int(color[1:3],16)},{int(color[3:5],16)},{int(color[5:7],16)},0.09)",
             line=dict(color=color,width=2.0),
-            hovertemplate="<b>%{x|%b %Y}</b><br>Nominal: $%{y:.0f}M<extra></extra>"))
+            hovertemplate="<b>%{x|%d %b %Y}</b><br>Nominal: $%{y:.0f}M<extra></extra>"))
         fig.update_layout(
             **_BASE, height=320,
             title=dict(text=f"{nc} — Nominal Exposure  ·  $M",font=dict(size=12,color="#333"),x=0),
@@ -2574,12 +2574,12 @@ def render_comparison(commodity, start_date, end_date, color):
         traces.append({"trace": go.Scatter(
             x=cit["Date"], y=_get_y(cit, cit_nc, unit), name=cfg["cit_label"],
             line=dict(color=color, width=2.2),
-            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{cfg['cit_label']}: %{{y:.1f}}{suffix}<extra></extra>")})
+            hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>{cfg['cit_label']}: %{{y:.1f}}{suffix}<extra></extra>")})
     if dag_nc in dag.columns:
         traces.append({"trace": go.Scatter(
             x=dag["Date"], y=_get_y(dag, dag_nc, unit), name=cfg["dag_label"],
             line=dict(color=DAG_COLOR, width=2.2, dash="dash"),
-            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{cfg['dag_label']}: %{{y:.1f}}{suffix}<extra></extra>")})
+            hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>{cfg['dag_label']}: %{{y:.1f}}{suffix}<extra></extra>")})
 
     fig_ts = go.Figure()
     for s in traces:
@@ -2602,7 +2602,7 @@ def render_comparison(commodity, start_date, end_date, color):
             x=merged["Date"], y=gap,
             marker=dict(color=[C_LONG if v>=0 else C_SHORT for v in gap],
                         opacity=0.82, line=dict(width=0)),
-            hovertemplate="<b>%{x|%b %Y}</b><br>CIT−Disagg: %{y:+.1f}k<extra></extra>",
+            hovertemplate="<b>%{x|%d %b %Y}</b><br>CIT−Disagg: %{y:+.1f}k<extra></extra>",
         ))
         fig_gap.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.14)")
         fig_gap.update_layout(
@@ -2630,12 +2630,12 @@ def render_comparison(commodity, start_date, end_date, color):
                 fig_ls.add_trace(go.Scatter(
                     x=cit["Date"], y=_get_y(cit, cit_col, unit), name=f"CIT {lbl}",
                     line=dict(color=clr, width=2.0),
-                    hovertemplate=f"<b>%{{x|%b %Y}}</b><br>CIT {lbl}: %{{y:.1f}}{suffix}<extra></extra>"))
+                    hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>CIT {lbl}: %{{y:.1f}}{suffix}<extra></extra>"))
                 if dag_col and dag_col in dag.columns:
                     fig_ls.add_trace(go.Scatter(
                         x=dag["Date"], y=_get_y(dag, dag_col, unit), name=f"Disagg {lbl}",
                         line=dict(color=clr, width=2.0, dash="dash"),
-                        hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Disagg {lbl}: %{{y:.1f}}{suffix}<extra></extra>"))
+                        hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>Disagg {lbl}: %{{y:.1f}}{suffix}<extra></extra>"))
                 fig_ls.update_layout(
                     **_BASE, height=280,
                     title=dict(text=f"{lbl} positions  ·  {ylabel}", font=dict(size=11,color="#444"), x=0),
@@ -2655,7 +2655,7 @@ def render_comparison(commodity, start_date, end_date, color):
                 x=roll.index, y=roll.values, mode="lines",
                 line=dict(color=color, width=2.0),
                 fill="tozeroy", fillcolor=f"rgba({r},{g},{b},0.08)",
-                hovertemplate="<b>%{x|%b %Y}</b><br>Corr: %{y:.2f}<extra></extra>"))
+                hovertemplate="<b>%{x|%d %b %Y}</b><br>Corr: %{y:.2f}<extra></extra>"))
             fig_rc.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.12)")
             fig_rc.update_layout(
                 **_BASE, height=270,
@@ -2858,7 +2858,7 @@ def render_combined(commodity, start_date, end_date, color):
                 if yax == "y2":
                     kw["yaxis"] = "y2"
                 fig.add_trace(go.Scatter(x=merged["Date"], y=y, name=name,
-                    hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{name}: %{{y:.1f}}<extra></extra>", **kw))
+                    hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>{name}: %{{y:.1f}}<extra></extra>", **kw))
             fig.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.15)")
             fig.update_layout(**_BASE, height=height,
                 title=dict(text=title, font=dict(size=11, color="#374151"), x=0),
@@ -2908,7 +2908,7 @@ def render_combined(commodity, start_date, end_date, color):
             x=merged["Date"], y=rel,
             marker=dict(color=[color_a if v >= 0 else color_b for v in rel],
                         opacity=0.75, line=dict(width=0)),
-            hovertemplate="<b>%{x|%b %Y}</b><br>CIT − Disagg Net: %{y:+.1f}k<extra></extra>",
+            hovertemplate="<b>%{x|%d %b %Y}</b><br>CIT − Disagg Net: %{y:+.1f}k<extra></extra>",
             name=f"{comm_a} CIT − {comm_b} Disagg"))
         fig_rel.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.2)")
         fig_rel.update_layout(**_BASE, height=300,
@@ -2938,19 +2938,19 @@ def render_combined(commodity, start_date, end_date, color):
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=merged["Date"], y=merged["Net_a"], name=f"{comm_a} Spec Net",
             line=dict(color=color_a, width=1.8, dash="dot"),
-            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{comm_a} Net: %{{y:.1f}}k<extra></extra>"))
+            hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>{comm_a} Net: %{{y:.1f}}k<extra></extra>"))
         fig.add_trace(go.Scatter(x=merged["Date"], y=merged["Net_b"], name=f"{comm_b} Spec Net",
             line=dict(color=color_b, width=1.8, dash="dot"),
-            hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{comm_b} Net: %{{y:.1f}}k<extra></extra>"))
+            hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>{comm_b} Net: %{{y:.1f}}k<extra></extra>"))
         fig.add_trace(go.Scatter(x=merged["Date"], y=merged["Comb Net"], name="Combined Net",
             fill="tozeroy", fillcolor=f"rgba({r},{g},{b_c},0.09)",
             line=dict(color=color, width=2.4),
-            hovertemplate="<b>%{x|%b %Y}</b><br>Combined: %{y:.1f}k<extra></extra>"))
+            hovertemplate="<b>%{x|%d %b %Y}</b><br>Combined: %{y:.1f}k<extra></extra>"))
         for px_col, px_lbl, px_clr in [("Px_a", f"{comm_a} Px", color_a), ("Px_b", f"{comm_b} Px", color_b)]:
             if px_col in merged.columns:
                 fig.add_trace(go.Scatter(x=merged["Date"], y=merged[px_col], name=px_lbl,
                     line=dict(color=px_clr, width=1.2, dash="longdash"), yaxis="y2",
-                    hovertemplate=f"<b>%{{x|%b %Y}}</b><br>{px_lbl}: %{{y:.2f}}<extra></extra>"))
+                    hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>{px_lbl}: %{{y:.2f}}<extra></extra>"))
         fig.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.15)")
         fig.update_layout(**_BASE, height=420,
             title=dict(text=f"{COMM_NAMES[commodity]}  ·  Combined Spec Net  ·  k lots",
@@ -2965,7 +2965,7 @@ def render_combined(commodity, start_date, end_date, color):
         delta = merged["Comb Net"].diff().fillna(0)
         fig2 = go.Figure(go.Bar(x=merged["Date"], y=delta,
             marker=dict(color=[C_LONG if v>=0 else C_SHORT for v in delta], opacity=0.8, line=dict(width=0)),
-            hovertemplate="<b>%{x|%b %Y}</b><br>Δ Combined Net: %{y:+.1f}k<extra></extra>"))
+            hovertemplate="<b>%{x|%d %b %Y}</b><br>Δ Combined Net: %{y:+.1f}k<extra></extra>"))
         fig2.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.14)")
         fig2.update_layout(**_BASE, height=240,
             title=dict(text="Combined Net — weekly Δ  ·  k lots",font=dict(size=11,color="#444"),x=0),
@@ -2986,14 +2986,14 @@ def render_combined(commodity, start_date, end_date, color):
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(x=merged["Date"], y=merged[f"Long{sfx}"], name="Long",
                     line=dict(color=C_LONG, width=2.0),
-                    hovertemplate="<b>%{x|%b %Y}</b><br>Long: %{y:.1f}k<extra></extra>"))
+                    hovertemplate="<b>%{x|%d %b %Y}</b><br>Long: %{y:.1f}k<extra></extra>"))
                 fig.add_trace(go.Scatter(x=merged["Date"], y=merged[f"Short{sfx}"], name="Short",
                     line=dict(color=C_SHORT, width=2.0),
-                    hovertemplate="<b>%{x|%b %Y}</b><br>Short: %{y:.1f}k<extra></extra>"))
+                    hovertemplate="<b>%{x|%d %b %Y}</b><br>Short: %{y:.1f}k<extra></extra>"))
                 fig.add_trace(go.Scatter(x=merged["Date"], y=merged[f"Net{sfx}"], name="Net",
                     fill="tozeroy", fillcolor="rgba(26,86,219,0.09)",
                     line=dict(color=C_NET, width=2.2),
-                    hovertemplate="<b>%{x|%b %Y}</b><br>Net: %{y:.1f}k<extra></extra>"))
+                    hovertemplate="<b>%{x|%d %b %Y}</b><br>Net: %{y:.1f}k<extra></extra>"))
                 fig.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.15)")
                 fig.update_layout(**_BASE, height=340,
                     title=dict(text=f"{comm} Spec · {leg_lbl}  ·  k lots",font=dict(size=11,color="#374151"),x=0),
@@ -3015,7 +3015,7 @@ def render_combined(commodity, start_date, end_date, color):
             delta = merged[col].diff().fillna(0)
             fig = go.Figure(go.Bar(x=merged["Date"], y=delta,
                 marker=dict(color=[C_LONG if v>=0 else C_SHORT for v in delta],opacity=0.8,line=dict(width=0)),
-                hovertemplate=f"<b>%{{x|%b %Y}}</b><br>Δ: %{{y:+.1f}}k<extra></extra>"))
+                hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>Δ: %{{y:+.1f}}k<extra></extra>"))
             fig.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.14)")
             fig.update_layout(**_BASE, height=280,
                 title=dict(text=f"{title}  ·  k lots",font=dict(size=10,color="#444"),x=0),
