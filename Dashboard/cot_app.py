@@ -997,6 +997,9 @@ def render_spreading(d, color, df_all_crops=None, commodity=""):
             with st.expander("Old / New / OC·NC Spreading  ·  Seasonality", expanded=False):
                 _forced_sm = {"CT": 7, "KC": 9, "CC": 9, "SB": 9}
                 _def_sm    = _forced_sm.get(commodity, CROP_START_MONTH)
+                if st.session_state.get("_spread_seas_comm") != commodity:
+                    st.session_state["spread_seas_sm"] = _def_sm
+                    st.session_state["_spread_seas_comm"] = commodity
                 sm = st.selectbox(
                     "Crop year starts in", list(range(1, 13)),
                     index=_def_sm - 1, format_func=lambda m: _MONTHS[m - 1],
@@ -1359,6 +1362,9 @@ def render_old_new(d_crops, color, commodity=""):
     with st.expander("Seasonality  ·  Old vs New Crop (adjustable start)", expanded=True):
         wide_full = _on_seasonal_wide(d_crops)
         if not wide_full.empty:
+            if st.session_state.get("_cy_start_comm") != commodity:
+                st.session_state["cy_start_on"] = _default_month
+                st.session_state["_cy_start_comm"] = commodity
             sm = st.selectbox("Crop year starts in", list(range(1,13)),
                               index=_default_month-1, format_func=lambda m: _MONTHS[m-1],
                               key="cy_start_on", help=_forced_help)
