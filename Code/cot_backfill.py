@@ -423,7 +423,7 @@ def build_disagg(comm, cfg, version, start, end):
     return combined
 
 
-FETCH_TIMEOUT  = 60   # seconds per ICE request before giving up
+FETCH_TIMEOUT  = 25   # seconds per ICE request before giving up
 FETCH_RETRIES  = 1    # retry once on timeout before marking as failed
 _failures_lock = threading.Lock()
 FETCH_FAILURES: list[str] = []
