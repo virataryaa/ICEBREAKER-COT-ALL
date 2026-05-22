@@ -106,7 +106,7 @@ def _ax(x=False):
              showline=True, linecolor="rgba(0,0,0,0.08)", linewidth=1,
              tickfont=dict(size=10, color="#666"))
     if x:
-        b.update(showgrid=False, tickangle=-35, nticks=7)
+        b.update(showgrid=False, tickangle=-35, nticks=7, hoverformat="%d %b %Y")
     return b
 
 
