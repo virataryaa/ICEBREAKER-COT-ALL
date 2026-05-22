@@ -37,8 +37,11 @@ Usage:
 
 import argparse
 import json
+import os
+import queue
 import sys
 import threading
+import pythoncom
 import icepython as ice
 import pandas as pd
 from pathlib import Path
@@ -225,14 +228,27 @@ DISAGG_FINAL_COLS = (
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def fetch_ts(symbol, fields, start, end):
-    def _call():
-        data = ice.get_timeseries(symbol, fields, granularity="D",
-                                  start_date=start, end_date=end)
-        return list(data)
+    def _call(q):
+        pythoncom.CoInitialize()
+        try:
+            data = ice.get_timeseries(symbol, fields, granularity="D",
+                                      start_date=start, end_date=end)
+            q.put(list(data))
+        except Exception as e:
+            q.put(e)
+        finally:
+            pythoncom.CoUninitialize()
     for attempt in range(FETCH_RETRIES + 1):
         try:
-            with ThreadPoolExecutor(max_workers=1) as ex:
-                rows = ex.submit(_call).result(timeout=FETCH_TIMEOUT)
+            q = queue.Queue()
+            t = threading.Thread(target=_call, args=(q,), daemon=True)
+            t.start()
+            try:
+                rows = q.get(timeout=FETCH_TIMEOUT)
+            except queue.Empty:
+                raise TimeoutError()
+            if isinstance(rows, Exception):
+                raise rows
             if not rows or (rows[0] and "Error" in str(rows[0][0])):
                 return None
             df = pd.DataFrame(rows[1:], columns=["Date"] + fields)
@@ -272,14 +288,27 @@ def fetch_ts_chunked(symbol, fields, start, end):
 
 
 def fetch_px(symbol, start, end):
-    def _call():
-        data = ice.get_timeseries(symbol, ["Settle"], granularity="D",
-                                  start_date=start, end_date=end)
-        return list(data)
+    def _call(q):
+        pythoncom.CoInitialize()
+        try:
+            data = ice.get_timeseries(symbol, ["Settle"], granularity="D",
+                                      start_date=start, end_date=end)
+            q.put(list(data))
+        except Exception as e:
+            q.put(e)
+        finally:
+            pythoncom.CoUninitialize()
     for attempt in range(FETCH_RETRIES + 1):
         try:
-            with ThreadPoolExecutor(max_workers=1) as ex:
-                rows = ex.submit(_call).result(timeout=FETCH_TIMEOUT)
+            q = queue.Queue()
+            t = threading.Thread(target=_call, args=(q,), daemon=True)
+            t.start()
+            try:
+                rows = q.get(timeout=FETCH_TIMEOUT)
+            except queue.Empty:
+                raise TimeoutError()
+            if isinstance(rows, Exception):
+                raise rows
             if not rows or (rows[0] and "Error" in str(rows[0][0])):
                 return pd.Series(dtype=float)
             df = pd.DataFrame(rows[1:], columns=["Date", "Px"])
@@ -424,7 +453,7 @@ def build_disagg(comm, cfg, version, start, end):
 
 
 FETCH_TIMEOUT  = 25   # seconds per ICE request before giving up
-FETCH_RETRIES  = 1    # retry once on timeout before marking as failed
+FETCH_RETRIES  = 0    # no retry — if ICE hangs past timeout, skip and move on
 _failures_lock = threading.Lock()
 FETCH_FAILURES: list[str] = []
 
@@ -464,11 +493,9 @@ if __name__ == "__main__":
 
     MAX_WORKERS = 6
 
-    # ── CIT ───────────────────────────────────────────────────────────────────────
-    if run_cit:
+    def _phase_cit():
         fetch_start, mode = _get_start(CIT_PATH, ["Commodity"])
         print(f"\nCIT | {mode}\n")
-
         all_cit = []
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
             futures = {pool.submit(build_cit, comm, cfg, fetch_start, END_DATE): comm
@@ -477,7 +504,6 @@ if __name__ == "__main__":
                 df = f.result()
                 if df is not None:
                     all_cit.append(df)
-
         if all_cit:
             final = upsert(CIT_PATH, pd.concat(all_cit, ignore_index=True),
                            fetch_start, ["Commodity"])
@@ -487,15 +513,12 @@ if __name__ == "__main__":
         else:
             print("CIT: no data.")
 
-    # ── Disagg FutOpt + Fut (combined parallel phase) ─────────────────────────────
-    if run_disagg:
+    def _phase_disagg():
         fo_start,  fo_mode  = _get_start(DISAGG_FUTOPT_PATH, ["Commodity", "Crop"])
         fut_start, fut_mode = _get_start(DISAGG_FUT_PATH,    ["Commodity", "Crop"])
         print(f"\nDISAGG FutOpt | {fo_mode}")
         print(f"DISAGG Fut    | {fut_mode}\n")
-
         all_fo, all_fut = [], []
-
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
             futures = {}
             for comm, cfg in DISAGG_COMMODITIES.items():
@@ -506,7 +529,6 @@ if __name__ == "__main__":
                 df = f.result()
                 if df is not None:
                     (all_fo if version == "FutOpt" else all_fut).append(df)
-
         if all_fo:
             final = upsert(DISAGG_FUTOPT_PATH, pd.concat(all_fo, ignore_index=True),
                            fo_start, ["Commodity", "Crop"])
@@ -515,7 +537,6 @@ if __name__ == "__main__":
                 rows=("Date", "count"), from_=("Date", "min"), to=("Date", "max")).to_string())
         else:
             print("Disagg FutOpt: no data.")
-
         if all_fut:
             final = upsert(DISAGG_FUT_PATH, pd.concat(all_fut, ignore_index=True),
                            fut_start, ["Commodity", "Crop"])
@@ -525,6 +546,14 @@ if __name__ == "__main__":
         else:
             print("Disagg Fut: no data.")
 
+    # ── CIT + Disagg in parallel ──────────────────────────────────────────────────
+    with ThreadPoolExecutor(max_workers=2) as top:
+        top_futures = []
+        if run_cit:    top_futures.append(top.submit(_phase_cit))
+        if run_disagg: top_futures.append(top.submit(_phase_disagg))
+        for f in as_completed(top_futures):
+            f.result()
+
     # ── Write failure manifest ─────────────────────────────────────────────────────
     failures_path = AUTOMATOR_DIR / "failures.json"
     unique_failures = sorted(set(FETCH_FAILURES))
@@ -533,3 +562,6 @@ if __name__ == "__main__":
     if unique_failures:
         print(f"\nWARNING: {len(unique_failures)} symbol(s) failed — {unique_failures}")
         print(f"Details written to {failures_path}")
+
+    # Force-exit without waiting for lingering ICE COM threads or running GC/finalizers
+    os._exit(0)
