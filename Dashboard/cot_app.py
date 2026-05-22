@@ -752,6 +752,7 @@ def render_spec(d, report, color):
                 line=dict(color="#94a3b8", width=1.4, dash="dot"),
                 hovertemplate="<b>%{x|%d %b %Y}</b><br>Spread: %{y:.1f}%<extra></extra>")})
         if pct_traces:
+            st.caption("Denominator: All Crop Total OI")
             st.plotly_chart(timeseries(d, pct_traces, f"{cat}  ·  % of Total OI", "% of OI"), width='stretch')
 
     # Stacked Long Add/Liq + Short Add/Cover bars + Price
@@ -896,6 +897,8 @@ def render_spreading(d, color, df_all_crops=None, commodity=""):
         "Shown per category in lots and % of OI.</p>", unsafe_allow_html=True)
 
     unit = st.radio("Unit", ["k lots","% of OI"], horizontal=True, key="spread_unit")
+    if unit == "% of OI":
+        st.caption("Denominator: All Crop Total OI")
     ylabel = "k lots" if unit=="k lots" else "% of OI"
 
     latest = d.iloc[-1]
@@ -942,6 +945,8 @@ def render_spreading(d, color, df_all_crops=None, commodity=""):
         if spread_cols_avail and not old.empty and not other.empty:
             with st.expander("Old vs New Crop  ·  Spreading", expanded=False):
                 on_unit = st.radio("Unit", ["k lots", "% of OI"], horizontal=True, key="spread_on_unit")
+                if on_unit == "% of OI":
+                    st.caption("Denominator: All Crop Total OI — same base for Old, New and OC/NC")
                 # denominator is always All Crop Total OI so Old, New and OC/NC are on the same base
                 _all_oi = all_["Total OI"].replace(0, np.nan) if "Total OI" in all_.columns else None
                 def _ov(df, col):
