@@ -693,6 +693,14 @@ def render_spec(d, report, color):
     lc, sc, nc, spc = cfg["long"], cfg["short"], cfg["net"], cfg["spread"]
     r, g, b = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
 
+    with st.expander("Seasonality", expanded=False):
+        seas_items = [(lc, C_LONG, "Long"), (sc, C_SHORT, "Short"), (nc, C_NET, "Net")]
+        avail_s = [(col, clr, lbl) for col, clr, lbl in seas_items if col in d.columns]
+        scols = st.columns(len(avail_s))
+        for ch, (col, clr, lbl) in zip(scols, avail_s):
+            with ch:
+                st.plotly_chart(seasonal(d, col, clr, f"{cat} {lbl}"), width='stretch')
+
     # Combined timeseries — Long, Short, Net all in selected unit + Price secondary
     ylabel = "k lots" if unit == "k lots" else "% of OI"
     suffix = "k" if unit == "k lots" else "%"
@@ -747,14 +755,6 @@ def render_spec(d, report, color):
     st.plotly_chart(bars_combined(d, lc, sc, nc, f"{cat} — weekly flow  ·  k lots", color),
                     width='stretch')
 
-    with st.expander("Seasonality", expanded=False):
-        seas_items = [(lc, C_LONG, "Long"), (sc, C_SHORT, "Short"), (nc, C_NET, "Net")]
-        avail_s = [(col, clr, lbl) for col, clr, lbl in seas_items if col in d.columns]
-        scols = st.columns(len(avail_s))
-        for ch, (col, clr, lbl) in zip(scols, avail_s):
-            with ch:
-                st.plotly_chart(seasonal(d, col, clr, f"{cat} {lbl}"), width='stretch')
-
     show_table(d, [lc, sc, nc] + ([spc] if spc else []) + ["Px"],
                [lc, sc, nc], f"Data table — {cat}")
 
@@ -771,6 +771,14 @@ def render_commercial(d, report, color):
     r, g, b = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
 
     unit = "k lots"
+
+    with st.expander("Seasonality", expanded=False):
+        seas = [(lc, C_LONG, "Long"), (sc, C_SHORT, "Short"), (nc, C_NET, "Net")]
+        avail_s = [(col, clr, name) for col, clr, name in seas if col in d.columns]
+        scols = st.columns(len(avail_s))
+        for ch, (col, clr, name) in zip(scols, avail_s):
+            with ch:
+                st.plotly_chart(seasonal(d, col, clr, f"{lbl} {name}"), width='stretch')
 
     # Combined timeseries — Long, Short, Net in selected unit + Price secondary
     ylabel = "k lots" if unit == "k lots" else "% of OI"
@@ -810,14 +818,6 @@ def render_commercial(d, report, color):
     # Stacked Long Add/Liq + Short Add/Cover bars + Price
     st.plotly_chart(bars_combined(d, lc, sc, nc, f"{lbl} — weekly flow  ·  k lots", color),
                     width='stretch')
-
-    with st.expander("Seasonality", expanded=False):
-        seas = [(lc, C_LONG, "Long"), (sc, C_SHORT, "Short"), (nc, C_NET, "Net")]
-        avail_s = [(col, clr, name) for col, clr, name in seas if col in d.columns]
-        scols = st.columns(len(avail_s))
-        for ch, (col, clr, name) in zip(scols, avail_s):
-            with ch:
-                st.plotly_chart(seasonal(d, col, clr, f"{lbl} {name}"), width='stretch')
 
     show_table(d, [lc, sc, nc, "Px"], [lc, sc, nc], f"Data table — {lbl}")
 
