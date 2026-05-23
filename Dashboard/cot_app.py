@@ -28,10 +28,10 @@ st.markdown("""
     border:1px solid #e0e4ed !important; border-radius:7px !important;
   }
   div[data-testid="stTabs"] button { font-size:0.81rem !important; font-weight:500; }
-  div[data-testid="stTabs"] button:nth-child(8),
   div[data-testid="stTabs"] button:nth-child(9),
   div[data-testid="stTabs"] button:nth-child(10),
-  div[data-testid="stTabs"] button:nth-child(11) {
+  div[data-testid="stTabs"] button:nth-child(11),
+  div[data-testid="stTabs"] button:nth-child(12) {
     background-color:#f3f4f6 !important;
     border-radius:6px 6px 0 0 !important;
   }
@@ -4130,6 +4130,344 @@ def render_pairs(start_date=None, end_date=None, commodity=None):
 # ══════════════════════════════════════════════════════════════════════════════
 show_pairs = commodity in {"KC", "RC", "CC", "LCC", "SB", "LSU"}
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB — PAIN TRADE (positioning flow + Rollex price-action)
+# ══════════════════════════════════════════════════════════════════════════════
+_PT_DARK_GREEN, _PT_LIGHT_GREEN = "#1a6b1a", "#7dce7d"
+_PT_DARK_RED,   _PT_LIGHT_RED   = "#8b0000", "#f4a0a0"
+_PT_AMBER, _PT_BLACK, _PT_NAVY  = "#e8a020", "#1d1d1f", "#0a2463"
+
+def _pt_label(text):
+    return (f"<div style='background:{_PT_NAVY};padding:5px 13px;border-radius:5px;"
+            f"margin-bottom:8px'><span style='font-size:.78rem;font-weight:500;"
+            f"letter-spacing:.07em;text-transform:uppercase;color:#dde4f0'>{text}</span></div>")
+
+def _pt_nice_step(price_range):
+    if price_range <= 0:
+        return 1
+    raw = price_range / 12
+    mag = 10 ** np.floor(np.log10(raw))
+    for mult in [1, 2, 2.5, 5, 10]:
+        cand = mag * mult
+        if cand >= raw:
+            return max(1, int(cand))
+    return max(1, int(mag * 10))
+
+def _pt_hbar(values, prices, color, name):
+    xs, ys = [], []
+    for v, p in zip(values, prices):
+        if pd.notna(v) and pd.notna(p) and v != 0:
+            xs += [0, float(v), None]
+            ys += [float(p), float(p), None]
+    return go.Scatter(x=xs, y=ys, mode="lines", name=name,
+                      line=dict(color=color, width=4))
+
+def render_pain_trade(d, commodity, report, color, is_options):
+    if commodity not in {"KC", "RC", "CC", "LCC", "SB", "CT"}:
+        _na("Pain Trade is available for KC, RC, CC, LCC, SB, and CT.")
+        return
+    if is_options:
+        _na("Pain Trade is not available for Options-only data.")
+        return
+    if d.empty:
+        st.warning("No data for the selected filters.")
+        return
+
+    if report == "CIT":
+        spec_l, spec_s, long3, short3, third_label = \
+            "Spec Long", "Spec Short", "Index Long", "Index Short", "Index"
+    else:
+        spec_l, spec_s, long3, short3, third_label = \
+            "MM Long", "MM Short", "Other Long", "Other Short", "Other Rep."
+
+    # Daily Rollex for the post-COT dotted extension
+    rx_daily = load_rollex(commodity).rename(columns={"rollex_px": "Rollex"})
+    rx_daily = rx_daily[["Date", "Rollex"]].dropna(subset=["Rollex"]) if not rx_daily.empty else \
+               pd.DataFrame(columns=["Date", "Rollex"])
+
+    # Controls
+    _radio_key = f"pt_radio_{commodity}_{report}"
+    incl = st.radio(
+        f"Include {third_label} in spec legs?",
+        [f"Yes — Spec + Non Rep + {third_label}", "No — Spec + Non Rep only"],
+        index=0, horizontal=True, key=_radio_key,
+    )
+    use_third = incl.startswith("Yes")
+
+    # Compute legs (use full unfiltered series first so .diff is correct, then trim)
+    df_pt = d.copy().sort_values("Date").reset_index(drop=True)
+    df_pt["Rollex"] = pd.to_numeric(df_pt["Px"], errors="coerce")
+
+    if use_third:
+        gross_long  = (df_pt[spec_l] + df_pt["Non Rep Long"]  + df_pt[long3])  / 1000
+        gross_short = (df_pt[spec_s] + df_pt["Non Rep Short"] + df_pt[short3]) / 1000
+        leg_label   = f"Spec + Non Rep + {third_label}"
+    else:
+        gross_long  = (df_pt[spec_l] + df_pt["Non Rep Long"])  / 1000
+        gross_short = (df_pt[spec_s] + df_pt["Non Rep Short"]) / 1000
+        leg_label   = "Spec + Non Rep"
+
+    long_chg, short_chg = gross_long.diff(), gross_short.diff()
+    df_pt["Long Add"]    =  long_chg.clip(lower=0)
+    df_pt["Long Liq"]    =  long_chg.clip(upper=0)
+    df_pt["Short Add"]   = -short_chg.clip(lower=0)
+    df_pt["Short Cover"] = -short_chg.clip(upper=0)
+
+    dff = df_pt  # already filtered by sidebar date range
+    last_cot_date = dff["Date"].max()
+    last_cot_str  = last_cot_date.strftime("%d/%m/%Y") if pd.notna(last_cot_date) else "—"
+    latest_rx_str = rx_daily["Date"].max().strftime("%d/%m/%Y") if not rx_daily.empty else last_cot_str
+
+    _rx_upto    = rx_daily[rx_daily["Date"] <= last_cot_date] if not rx_daily.empty else pd.DataFrame()
+    if not _rx_upto.empty:
+        window_px, window_date = float(_rx_upto["Rollex"].iloc[-1]), _rx_upto["Date"].iloc[-1].strftime("%d/%m/%Y")
+    else:
+        _cot_rx = dff.dropna(subset=["Rollex"])
+        window_px   = float(_cot_rx["Rollex"].iloc[-1]) if not _cot_rx.empty else np.nan
+        window_date = _cot_rx["Date"].iloc[-1].strftime("%d/%m/%Y") if not _cot_rx.empty else "—"
+
+    # ── VISUAL 1 — Spec legs bars + Rollex ───────────────────────────────────
+    st.markdown(
+        _pt_label(f"{commodity} — Spec Legs Weekly Change ({leg_label}) · Rollex (Right) "
+                  f"| COT as of {last_cot_str} · Rollex as of {latest_rx_str}"),
+        unsafe_allow_html=True,
+    )
+
+    fig1 = make_subplots(specs=[[{"secondary_y": True}]])
+    for col, c, name in [
+        ("Long Add",    _PT_DARK_GREEN,  "Long Add"),
+        ("Long Liq",    _PT_LIGHT_GREEN, "Long Liq."),
+        ("Short Add",   _PT_DARK_RED,    "Short Add"),
+        ("Short Cover", _PT_LIGHT_RED,   "Short Cover"),
+    ]:
+        fig1.add_trace(go.Bar(x=dff["Date"], y=dff[col], name=name,
+                              marker_color=c, opacity=0.92), secondary_y=False)
+
+    rx_solid = dff.dropna(subset=["Rollex"])
+    fig1.add_trace(go.Scatter(x=rx_solid["Date"], y=rx_solid["Rollex"],
+                              name="Rollex (COT period)", mode="lines",
+                              line=dict(color=_PT_BLACK, width=2)),
+                   secondary_y=True)
+
+    if not rx_solid.empty and not rx_daily.empty:
+        last_solid = rx_solid.iloc[-1:][["Date", "Rollex"]]
+        rx_after   = rx_daily[rx_daily["Date"] > last_cot_date][["Date", "Rollex"]]
+        rx_ext     = pd.concat([last_solid, rx_after]).sort_values("Date")
+        if len(rx_ext) > 1:
+            fig1.add_trace(go.Scatter(x=rx_ext["Date"], y=rx_ext["Rollex"],
+                                      name=f"Rollex post-COT ({latest_rx_str})",
+                                      mode="lines",
+                                      line=dict(color=_PT_AMBER, width=2, dash="dot")),
+                           secondary_y=True)
+
+    fig1.update_layout(
+        barmode="relative", height=420,
+        margin=dict(t=10, b=10, l=4, r=4),
+        legend=dict(orientation="h", y=1.06, x=0, font=dict(size=9)),
+        xaxis=dict(showgrid=False, tickfont=dict(size=9)),
+        template="plotly_white",
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="-apple-system,Helvetica Neue,sans-serif", color=_PT_BLACK, size=10),
+    )
+    fig1.update_yaxes(title_text="k Contracts", secondary_y=False,
+                      showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9))
+    fig1.update_yaxes(title_text="Rollex Price", secondary_y=True,
+                      showgrid=False, tickfont=dict(size=9))
+
+    st.plotly_chart(fig1, width='stretch')
+    st.markdown("<hr>", unsafe_allow_html=True)
+
+    # ── VISUAL 2 — Rollex (Y) vs COT breakdown (X) ───────────────────────────
+    scatter_df = dff.dropna(subset=["Rollex"]).copy()
+    window_px_str = f"{window_px:.1f}" if pd.notna(window_px) else "—"
+    st.markdown(
+        _pt_label(f"{commodity} — Long Add · Liq | Short Add · Cover | Rollex (Y-axis) "
+                  f"· Rollex {window_px_str} as of {window_date} · COT as of {last_cot_str}"),
+        unsafe_allow_html=True,
+    )
+
+    _y_min = int(scatter_df["Rollex"].min() * 0.97) if not scatter_df.empty else 0
+    _y_max = int(scatter_df["Rollex"].max() * 1.03) if not scatter_df.empty else 500
+    _x_abs = scatter_df[["Long Add", "Long Liq", "Short Add", "Short Cover"]].abs().max().max()
+    _x_max = int(_x_abs * 1.1) if not np.isnan(_x_abs) else 25
+
+    with st.expander("Zoom controls", expanded=False):
+        zc1, zc2 = st.columns(2)
+        with zc1:
+            y_zoom = st.slider("Y zoom — Rollex price",
+                               min_value=_y_min, max_value=_y_max,
+                               value=(_y_min, _y_max), key=f"pt_v2_y_{commodity}_{report}")
+        with zc2:
+            x_zoom = st.slider("X zoom — k Contracts",
+                               min_value=-_x_max, max_value=_x_max,
+                               value=(-_x_max, _x_max), key=f"pt_v2_x_{commodity}_{report}")
+
+    fig2 = go.Figure()
+    fig2.add_trace(_pt_hbar(scatter_df["Long Add"],    scatter_df["Rollex"], _PT_DARK_GREEN,  "Long Add"))
+    fig2.add_trace(_pt_hbar(scatter_df["Long Liq"],    scatter_df["Rollex"], _PT_LIGHT_GREEN, "Long Liq."))
+    fig2.add_trace(_pt_hbar(scatter_df["Short Add"],   scatter_df["Rollex"], _PT_DARK_RED,    "Short Add"))
+    fig2.add_trace(_pt_hbar(scatter_df["Short Cover"], scatter_df["Rollex"], _PT_LIGHT_RED,   "Short Cover"))
+
+    if pd.notna(window_px):
+        fig2.add_hline(
+            y=window_px, line_color="#4a5568", line_width=2, line_dash="dash",
+            annotation_text=f"Rollex {window_px:.1f} ({window_date})  ",
+            annotation_font=dict(size=10, color="#4a5568"),
+            annotation_position="left",
+        )
+    fig2.add_vline(x=0, line_color="#cccccc", line_width=1)
+
+    recent5 = scatter_df.tail(5).reset_index(drop=True)
+    week_labels = ["W-4", "W-3", "W-2", "W-1", "Latest"]
+    for i, row in recent5.iterrows():
+        label    = week_labels[i] if i < len(week_labels) else f"W-{4-i}"
+        rx_price = float(row["Rollex"])
+        cot_date = row["Date"].strftime("%d/%m")
+        is_latest = label == "Latest"
+        tag_text = (f"<b>{label}</b>"
+                    f"<i style='font-size:7px;color:#888888'> {cot_date}</i>")
+        fig2.add_shape(type="line", x0=0, y0=rx_price, x1=_x_max, y1=rx_price,
+                       line=dict(color="#bbbbbb", width=1, dash="dot"),
+                       xref="x", yref="y", layer="below")
+        fig2.add_annotation(
+            x=1.01, xref="paper", y=rx_price, yref="y", text=tag_text,
+            showarrow=False, xanchor="left", align="left",
+            font=dict(size=8, color=_PT_NAVY if not is_latest else _PT_DARK_RED,
+                      family="-apple-system,sans-serif"),
+            bgcolor="rgba(255,255,255,0.88)",
+        )
+
+    fig2.update_layout(
+        height=600,
+        margin=dict(t=10, b=10, l=60, r=220),
+        legend=dict(orientation="h", y=1.04, x=0, font=dict(size=9)),
+        xaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9),
+                   title="k Contracts", zeroline=False, range=list(x_zoom)),
+        yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9),
+                   title="Rollex Price", range=list(y_zoom)),
+        template="plotly_white",
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="-apple-system,Helvetica Neue,sans-serif", color=_PT_BLACK, size=10),
+    )
+    _l, _ch, _r = st.columns([0.125, 0.75, 0.125])
+    with _ch:
+        st.plotly_chart(fig2, width='stretch')
+
+    # ── Rollex bucket table ───────────────────────────────────────────────────
+    with st.expander("Positioning by Rollex Level", expanded=False):
+        _tc1, _tc2 = st.columns([1, 1])
+        with _tc2:
+            n_weeks = st.number_input("Weeks", min_value=1, max_value=500, value=13,
+                                       step=1, key=f"pt_tbl_wks_{commodity}_{report}")
+
+        tbl_full = df_pt[["Date", "Rollex", "Long Add", "Long Liq", "Short Add", "Short Cover"]] \
+                    .dropna(subset=["Rollex"]).copy()
+        tbl_df = tbl_full.sort_values("Date").tail(int(n_weeks)).copy()
+
+        _rx_range  = tbl_df["Rollex"].max() - tbl_df["Rollex"].min() if not tbl_df.empty else 1
+        _auto_step = _pt_nice_step(_rx_range)
+        with _tc1:
+            rx_step = st.number_input(f"Rollex step  (auto: {_auto_step})",
+                                       min_value=1, value=_auto_step, step=1,
+                                       key=f"pt_rx_step_{commodity}_{report}")
+
+        if not tbl_df.empty and rx_step > 0:
+            rx_floor = (tbl_df["Rollex"].min() // rx_step) * rx_step
+            rx_ceil  = (tbl_df["Rollex"].max() // rx_step + 1) * rx_step
+            bins     = np.arange(rx_floor, rx_ceil + rx_step, rx_step)
+            bin_lbls = [f"{int(b)} – {int(b + rx_step)}" for b in bins[:-1]]
+
+            tbl_df["RxBin"] = pd.cut(tbl_df["Rollex"], bins=bins, labels=bin_lbls, right=False)
+            flow_cols = ["Long Add", "Long Liq", "Short Add", "Short Cover"]
+
+            sorted_dates   = tbl_df["Date"].sort_values(ascending=False).reset_index(drop=True)
+            week_label_map = {d: f"W-{i}" if i > 0 else "W0" for i, d in enumerate(sorted_dates)}
+            tbl_df["_wlbl"] = tbl_df["Date"].map(week_label_map)
+
+            agg = tbl_df.groupby("RxBin", observed=False)
+            grouped          = agg[flow_cols].sum().reindex(bin_lbls).sort_index(ascending=False)
+            grouped["n"]     = agg["_wlbl"].count().reindex(bin_lbls).reindex(grouped.index)
+            grouped["Weeks"] = agg["_wlbl"].apply(
+                lambda s: ",  ".join(s.sort_values().tolist())
+            ).reindex(bin_lbls).reindex(grouped.index)
+
+            bins_desc  = bins[:-1][::-1]
+            above_mask = bins_desc >= window_px if pd.notna(window_px) else np.array([False]*len(bins_desc))
+            below_mask = (bins_desc + rx_step) <= window_px if pd.notna(window_px) else np.array([False]*len(bins_desc))
+
+            grp_filled = grouped[flow_cols + ["n"]].fillna(0)
+            above_row  = grp_filled[above_mask].sum()
+            below_row  = grp_filled[below_mask].sum()
+            above_row["Weeks"] = f"≥ {window_px:.0f}" if pd.notna(window_px) else ""
+            below_row["Weeks"] = f"< {window_px:.0f}" if pd.notna(window_px) else ""
+
+            total_row          = grp_filled.sum()
+            total_row["Weeks"] = ""
+
+            wpx_lbl = f"{window_px:.0f}" if pd.notna(window_px) else "—"
+            summary_labels = [f"Above  ({wpx_lbl})", f"Below  ({wpx_lbl})", "TOTAL"]
+            summary_df = pd.DataFrame([above_row, below_row, total_row], index=summary_labels)
+            display_tbl = pd.concat([grouped, summary_df])
+            display_tbl.index.name = "Rollex Range"
+
+            def _style_bucket(df_):
+                styles = pd.DataFrame("", index=df_.index, columns=df_.columns)
+                for ri in df_.index:
+                    is_summary = ri in summary_labels
+                    for col in df_.columns:
+                        v = df_.at[ri, col]
+                        try:
+                            fv = float(v)
+                        except (TypeError, ValueError):
+                            continue
+                        if np.isnan(fv):
+                            continue
+                        bold = "font-weight:700;" if is_summary else "font-weight:600;"
+                        if col in ("Long Add", "Short Cover"):
+                            cc = "#1a6b1a" if fv > 0 else "#dc2626" if fv < 0 else ""
+                        elif col in ("Long Liq", "Short Add"):
+                            cc = "#dc2626" if fv != 0 else ""
+                        else:
+                            cc = ""
+                        if cc:
+                            styles.at[ri, col] = f"color:{cc};{bold}"
+                return styles
+
+            fmt = {c: "{:+.2f}" for c in flow_cols}
+            fmt["n"] = "{:.0f}"
+            styled = (display_tbl.style
+                      .format(fmt, na_rep="—")
+                      .apply(_style_bucket, axis=None)
+                      .set_table_styles([
+                          {"selector": "thead th",
+                           "props": [("font-size", ".75rem"), ("color", "#444"),
+                                     ("font-weight", "600"), ("text-align", "center")]},
+                          {"selector": "tr:nth-last-child(-n+3) td",
+                           "props": [("border-top", "1px solid #ddd"),
+                                     ("background", "#f5f5f7")]},
+                          {"selector": "tr:last-child td",
+                           "props": [("border-top", "2px solid #bbb"),
+                                     ("background", "#ebebef")]},
+                          {"selector": "td", "props": [("font-size", ".78rem"),
+                                                       ("text-align", "right")]},
+                          {"selector": "td:last-child",
+                           "props": [("text-align", "left"), ("color", "#555"),
+                                     ("font-size", ".72rem"), ("white-space", "nowrap"),
+                                     ("font-family", "monospace")]},
+                          {"selector": "th.row_heading",
+                           "props": [("font-size", ".75rem"), ("text-align", "left"),
+                                     ("color", "#555"), ("font-weight", "500")]},
+                      ]))
+            st.dataframe(styled, width='stretch')
+            st.markdown(
+                f"<p style='font-size:.68rem;color:#999;margin-top:4px'>"
+                f"Values in k lots · {len(tbl_df)} COT observations in selected period · "
+                f"step = {rx_step}</p>",
+                unsafe_allow_html=True,
+            )
+
+
 # Fragment wrappers — each tab only reruns itself when its own widgets change,
 # preventing the full-page rerun that scrolls back to the top.
 @st.fragment
@@ -4180,6 +4518,10 @@ def _tab_spec_var(commodity, df, report, color, start_date, end_date):
 def _tab_pairs(start_date, end_date, commodity):
     render_pairs(start_date, end_date, commodity)
 
+@st.fragment
+def _tab_pain_trade(d, commodity, report, color, is_options):
+    render_pain_trade(d, commodity, report, color, is_options)
+
 
 def _na(msg):
     st.markdown(
@@ -4192,7 +4534,7 @@ def _na(msg):
 # Fixed tab count — Streamlit preserves the active tab when sidebar filters change.
 tabs = st.tabs([
     "Recap", "Recap (Charts)", "Spec", "Commercial",
-    "Concentration", "Spreading", "Old / New",
+    "Concentration", "Spreading", "Old / New", "Pain Trade",
     "Correlation", "Spec Prediction", "Specs in VaR", "CIT vs Disagg",
 ])
 
@@ -4221,11 +4563,12 @@ with tabs[6]:  # Old / New
     else:
         _na("Old / New crop split is not available for this commodity.")
 
-with tabs[7]:  _tab_correlation(df, report, color)
-with tabs[8]:  _tab_analysis(df, report, color, commodity)
-with tabs[9]:  _tab_spec_var(commodity, df, report, color, start_date, end_date)
+with tabs[7]:  _tab_pain_trade(df, commodity, report, color, is_options)
+with tabs[8]:  _tab_correlation(df, report, color)
+with tabs[9]:  _tab_analysis(df, report, color, commodity)
+with tabs[10]: _tab_spec_var(commodity, df, report, color, start_date, end_date)
 
-with tabs[10]:  # CIT vs Disagg
+with tabs[11]:  # CIT vs Disagg
     if commodity in CIT_COMMS and not is_options:
         _tab_comparison(commodity, start_date, end_date, color)
     else:
