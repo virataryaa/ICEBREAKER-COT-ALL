@@ -45,8 +45,8 @@ if %ERRORLEVEL% NEQ 0 (
     set GIT_STATUS=skipped
 )
 
-:: Step 4 — Email notification
+:: Step 4 — Email notification (daily mode — Rollex-focused body)
 echo [4] Sending notification... >> "%LOG%"
-"%PYTHON%" "C:\Users\virat.arya\ETG\SoftsDatabase - Documents\Database\Hardmine\ICEBREAKER\COT_ALL\Automator\notify.py" ok %GIT_STATUS% >> "%LOG%" 2>&1
+"%PYTHON%" "C:\Users\virat.arya\ETG\SoftsDatabase - Documents\Database\Hardmine\ICEBREAKER\COT_ALL\Automator\notify.py" ok %GIT_STATUS% daily >> "%LOG%" 2>&1
 
 echo Daily run finished: %date% %time% >> "%LOG%"

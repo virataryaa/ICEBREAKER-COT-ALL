@@ -1,9 +1,10 @@
 """
 notify.py — COT_ALL Automator email summary
-Called by run.bat after ingest + git push.
-Usage: python notify.py <status> <git_status>
+Called by run.bat (weekly) or run_daily.bat (daily Rollex sync).
+Usage: python notify.py <status> <git_status> [mode]
   status     : ok | error
   git_status : pushed | skipped | failed
+  mode       : weekly (default) | daily
 """
 
 import sys
@@ -15,6 +16,8 @@ from pathlib import Path
 TO_EMAIL      = "virat.arya@etgworld.com"
 DB_DIR        = Path(r"C:\Users\virat.arya\ETG\SoftsDatabase - Documents\Database\Hardmine\ICEBREAKER\COT_ALL\Database")
 AUTOMATOR_DIR = Path(r"C:\Users\virat.arya\ETG\SoftsDatabase - Documents\Database\Hardmine\ICEBREAKER\COT_ALL\Automator")
+ROLLEX_DIR    = DB_DIR / "Rollex"
+ROLLYIELD_DIR = DB_DIR / "RollYield"
 
 CIT_FILE        = DB_DIR / "cot_cit.parquet"
 DISAGG_FO_FILE  = DB_DIR / "cot_disagg_futopt.parquet"
@@ -22,6 +25,7 @@ DISAGG_F_FILE   = DB_DIR / "cot_disagg_fut.parquet"
 
 status     = sys.argv[1] if len(sys.argv) > 1 else "ok"
 git_status = sys.argv[2] if len(sys.argv) > 2 else "unknown"
+mode       = sys.argv[3] if len(sys.argv) > 3 else "weekly"
 run_dt     = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 today      = datetime.date.today().strftime("%Y-%m-%d")
 
@@ -80,17 +84,34 @@ def send_outlook_email(subject: str, body: str):
         print(f"  Email failed: {e}")
 
 
-failed_symbols = load_failures()
-stale_warnings = (
-    staleness_warnings(CIT_FILE,       "CIT",        group_by=["Commodity"]) +
-    staleness_warnings(DISAGG_FO_FILE, "DISAGG F&O", group_by=["Commodity", "Crop"]) +
-    staleness_warnings(DISAGG_F_FILE,  "DISAGG Fut", group_by=["Commodity", "Crop"])
-)
-has_warnings = bool(failed_symbols or stale_warnings)
+def _max_date(df: pd.DataFrame):
+    """Find the max date in a parquet whether Date is a column or the index."""
+    if "Date" in df.columns:
+        return pd.to_datetime(df["Date"]).max().date()
+    if df.index.name == "Date":
+        return pd.to_datetime(df.index).max().date()
+    return "n/a"
 
-ok  = status == "ok"
-tag = "[ERROR]" if not ok else ("[WARNING]" if has_warnings else "[OK]")
-subject = f"{tag} ICEBREAKER-COT_ALL — {today}"
+
+def rollex_sync_summary() -> str:
+    """List Rollex + RollYield parquets with file mtime and data max-date."""
+    files = sorted(ROLLEX_DIR.glob("rollex_*.parquet")) + sorted(ROLLYIELD_DIR.glob("*.parquet"))
+    if not files:
+        return "  (no synced files found)\n"
+    lines = []
+    for p in files:
+        mtime = datetime.datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+        size_kb = p.stat().st_size / 1024
+        try:
+            max_date = _max_date(pd.read_parquet(p))
+        except Exception:
+            max_date = "n/a"
+        rel = p.relative_to(DB_DIR).as_posix()
+        lines.append(f"    {rel:<32}  file mtime {mtime}   data->{max_date}   {size_kb:>6.0f} KB")
+    return "\n".join(lines) + "\n"
+
+
+ok = status == "ok"
 
 git_line = {
     "pushed":  "GitHub  : Pushed successfully",
@@ -98,19 +119,54 @@ git_line = {
     "failed":  "GitHub  : PUSH FAILED",
 }.get(git_status, f"GitHub  : {git_status}")
 
-warnings_block = ""
-if failed_symbols or stale_warnings:
-    lines = ["=" * 55, "WARNINGS", "=" * 55]
-    if failed_symbols:
-        lines.append("  Failed/timed-out ICE symbols:")
-        for s in failed_symbols:
-            lines.append(f"    - {s}")
-    if stale_warnings:
-        lines.append("  Stale data detected:")
-        lines += stale_warnings
-    warnings_block = "\n".join(lines) + "\n\n"
 
-body = f"""ICEBREAKER COT_ALL — Weekly Update
+if mode == "daily":
+    # ── DAILY ROLLEX SYNC EMAIL ────────────────────────────────────────────────
+    tag = "[ERROR]" if not ok else ("[WARN-PUSH]" if git_status == "failed" else "[DAILY]")
+    subject = f"{tag} Rollex Daily Sync — {today}"
+
+    body = f"""ICEBREAKER COT_ALL — DAILY ROLLEX SYNC
+Run time : {run_dt}
+Status   : {"OK" if ok else "ERROR — check run_daily_log.txt"}
+{git_line}
+
+{"=" * 55}
+SYNCED FILES (Rollex + Roll Yield)
+{"=" * 55}
+{rollex_sync_summary()}
+{"=" * 55}
+Note: This is the DAILY sync (xcopy only). COT parquets are NOT touched here —
+those refresh weekly via run.bat on Fridays after CFTC release.
+
+Log: C:\\Users\\virat.arya\\ETG\\SoftsDatabase - Documents\\Database\\Hardmine\\ICEBREAKER\\COT_ALL\\Automator\\run_daily_log.txt
+"""
+
+else:
+    # ── WEEKLY COT UPDATE EMAIL ────────────────────────────────────────────────
+    failed_symbols = load_failures()
+    stale_warnings = (
+        staleness_warnings(CIT_FILE,       "CIT",        group_by=["Commodity"]) +
+        staleness_warnings(DISAGG_FO_FILE, "DISAGG F&O", group_by=["Commodity", "Crop"]) +
+        staleness_warnings(DISAGG_F_FILE,  "DISAGG Fut", group_by=["Commodity", "Crop"])
+    )
+    has_warnings = bool(failed_symbols or stale_warnings)
+
+    tag = "[ERROR]" if not ok else ("[WARNING]" if has_warnings else "[OK]")
+    subject = f"{tag} ICEBREAKER-COT_ALL Weekly — {today}"
+
+    warnings_block = ""
+    if failed_symbols or stale_warnings:
+        lines = ["=" * 55, "WARNINGS", "=" * 55]
+        if failed_symbols:
+            lines.append("  Failed/timed-out ICE symbols:")
+            for s in failed_symbols:
+                lines.append(f"    - {s}")
+        if stale_warnings:
+            lines.append("  Stale data detected:")
+            lines += stale_warnings
+        warnings_block = "\n".join(lines) + "\n\n"
+
+    body = f"""ICEBREAKER COT_ALL — WEEKLY COT UPDATE
 Run time : {run_dt}
 Status   : {"OK" if ok else "ERROR — ingest failed, check run_log.txt"}
 {git_line}
