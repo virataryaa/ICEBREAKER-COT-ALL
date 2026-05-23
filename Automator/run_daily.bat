@@ -5,6 +5,10 @@ set LOG=C:\Users\virat.arya\ETG\SoftsDatabase - Documents\Database\Hardmine\ICEB
 set REPO=C:\Users\virat.arya\ETG\SoftsDatabase - Documents\Database\Hardmine\ICEBREAKER\COT_ALL
 set GIT_STATUS=skipped
 
+:: Prevent Git Credential Manager from showing an interactive dialog in unattended runs.
+:: If credentials are cached it pushes silently; if not, it fails immediately instead of hanging.
+set GCM_INTERACTIVE=never
+set GIT_TERMINAL_PROMPT=0
 echo. >> "%LOG%"
 echo ============================= >> "%LOG%"
 echo Daily run started: %date% %time% >> "%LOG%"

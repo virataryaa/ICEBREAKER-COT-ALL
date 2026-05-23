@@ -38,9 +38,9 @@ Usage:
 import argparse
 import json
 import os
-import queue
 import sys
 import threading
+import time
 import icepython as ice
 import pandas as pd
 from pathlib import Path
@@ -227,24 +227,14 @@ DISAGG_FINAL_COLS = (
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def fetch_ts(symbol, fields, start, end):
-    def _call(q):
-        try:
-            data = ice.get_timeseries(symbol, fields, granularity="D",
-                                      start_date=start, end_date=end)
-            q.put(list(data))
-        except Exception as e:
-            q.put(e)
+    def _call():
+        data = ice.get_timeseries(symbol, fields, granularity="D",
+                                  start_date=start, end_date=end)
+        return list(data)
     for attempt in range(FETCH_RETRIES + 1):
         try:
-            q = queue.Queue()
-            t = threading.Thread(target=_call, args=(q,))
-            t.start()
-            try:
-                rows = q.get(timeout=FETCH_TIMEOUT)
-            except queue.Empty:
-                raise TimeoutError()
-            if isinstance(rows, Exception):
-                raise rows
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                rows = ex.submit(_call).result(timeout=FETCH_TIMEOUT)
             if not rows or (rows[0] and "Error" in str(rows[0][0])):
                 return None
             df = pd.DataFrame(rows[1:], columns=["Date"] + fields)
@@ -284,24 +274,14 @@ def fetch_ts_chunked(symbol, fields, start, end):
 
 
 def fetch_px(symbol, start, end):
-    def _call(q):
-        try:
-            data = ice.get_timeseries(symbol, ["Settle"], granularity="D",
-                                      start_date=start, end_date=end)
-            q.put(list(data))
-        except Exception as e:
-            q.put(e)
+    def _call():
+        data = ice.get_timeseries(symbol, ["Settle"], granularity="D",
+                                  start_date=start, end_date=end)
+        return list(data)
     for attempt in range(FETCH_RETRIES + 1):
         try:
-            q = queue.Queue()
-            t = threading.Thread(target=_call, args=(q,))
-            t.start()
-            try:
-                rows = q.get(timeout=FETCH_TIMEOUT)
-            except queue.Empty:
-                raise TimeoutError()
-            if isinstance(rows, Exception):
-                raise rows
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                rows = ex.submit(_call).result(timeout=FETCH_TIMEOUT)
             if not rows or (rows[0] and "Error" in str(rows[0][0])):
                 return pd.Series(dtype=float)
             df = pd.DataFrame(rows[1:], columns=["Date", "Px"])
@@ -407,17 +387,13 @@ def build_disagg(comm, cfg, version, start, end):
     symbol = cfg["comb_sym"] if version == "FutOpt" else cfg["fut_sym"]
     pieces = []
 
-    with ThreadPoolExecutor(max_workers=3) as inner:
-        crop_futures = {inner.submit(_fetch_disagg_slice, symbol, crop, start, end): crop
-                        for crop in ("All", "Old", "Other")}
-        for f in as_completed(crop_futures):
-            crop = crop_futures[f]
-            df = f.result()
-            print(f"  [{comm}] Disagg {version} {crop}  {symbol}... ", end="", flush=True)
-            if df is None:
-                print("no data"); continue
-            print(f"{len(df)} rows")
-            pieces.append(df)
+    for crop in ("All", "Old", "Other"):
+        df = _fetch_disagg_slice(symbol, crop, start, end)
+        print(f"  [{comm}] Disagg {version} {crop}  {symbol}... ", end="", flush=True)
+        if df is None:
+            print("no data"); continue
+        print(f"{len(df)} rows")
+        pieces.append(df)
 
     if not pieces:
         return None
@@ -446,9 +422,30 @@ def build_disagg(comm, cfg, version, start, end):
 
 
 FETCH_TIMEOUT  = 25   # seconds per ICE request before giving up
-FETCH_RETRIES  = 0    # no retry — if ICE hangs past timeout, skip and move on
+FETCH_RETRIES  = 2    # retry up to 2x — ICE COM occasionally rate-limits when concurrency spikes
+PREFLIGHT_TIMEOUT = 10
 _failures_lock = threading.Lock()
 FETCH_FAILURES: list[str] = []
+
+
+def ice_preflight() -> bool:
+    """Direct (non-threaded) ping to confirm ICE Connect is alive.
+    Runs in the main thread to avoid STA marshaling overhead — typical
+    response is <3s when ICE Workspace is open."""
+    print("Preflight: pinging ICE (direct call)...", flush=True)
+    t0 = time.time()
+    try:
+        data = list(ice.get_timeseries(
+            "KC #COMB-CFTC", ["Open Interest All Close"],
+            granularity="D", start_date="2026-05-01", end_date="2026-05-23"))
+    except Exception as e:
+        print(f"  Preflight FAILED: {e}")
+        return False
+    if not data or len(data) < 2:
+        print(f"  Preflight FAILED: empty response (ICE Workspace likely closed)")
+        return False
+    print(f"  Preflight OK ({time.time()-t0:.1f}s, got {len(data)-1} rows)")
+    return True
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
@@ -463,6 +460,15 @@ if __name__ == "__main__":
     run_cit    = not args.disagg
     run_disagg = not args.cit
     END_DATE   = datetime.today().strftime("%Y-%m-%d")
+    RUN_T0     = time.time()
+
+    if not ice_preflight():
+        failures_path = AUTOMATOR_DIR / "failures.json"
+        with open(failures_path, "w") as fh:
+            json.dump({"run_time": END_DATE,
+                       "failed_symbols": ["PREFLIGHT — ICE Connect unreachable"]}, fh, indent=2)
+        print("\nABORTING: ICE Connect unreachable. Open ICE Workspace and re-run.")
+        os._exit(2)
 
     if args.commodity:
         comm = args.commodity.upper()
@@ -484,7 +490,7 @@ if __name__ == "__main__":
         return s, f"INCREMENTAL from {s}"
 
 
-    MAX_WORKERS = 6
+    MAX_WORKERS = 3   # ICE Workspace tolerates ~3–4 concurrent CFTC requests reliably
 
     def _phase_cit():
         fetch_start, mode = _get_start(CIT_PATH, ["Commodity"])
@@ -539,13 +545,9 @@ if __name__ == "__main__":
         else:
             print("Disagg Fut: no data.")
 
-    # ── CIT + Disagg in parallel ──────────────────────────────────────────────────
-    with ThreadPoolExecutor(max_workers=2) as top:
-        top_futures = []
-        if run_cit:    top_futures.append(top.submit(_phase_cit))
-        if run_disagg: top_futures.append(top.submit(_phase_disagg))
-        for f in as_completed(top_futures):
-            f.result()
+    # ── CIT then Disagg (sequential — parallel phases overwhelm ICE COM) ─────────
+    if run_cit:    _phase_cit()
+    if run_disagg: _phase_disagg()
 
     # ── Write failure manifest ─────────────────────────────────────────────────────
     failures_path = AUTOMATOR_DIR / "failures.json"
@@ -556,5 +558,19 @@ if __name__ == "__main__":
         print(f"\nWARNING: {len(unique_failures)} symbol(s) failed — {unique_failures}")
         print(f"Details written to {failures_path}")
 
+    expected_symbols = set()
+    if run_cit:
+        expected_symbols.update(cfg["cot_sym"] for cfg in CIT_COMMODITIES.values())
+    if run_disagg:
+        for cfg in DISAGG_COMMODITIES.values():
+            expected_symbols.add(cfg["comb_sym"])
+            expected_symbols.add(cfg["fut_sym"])
+    expected = len(expected_symbols)
+    cot_failures = [s for s in unique_failures if not s.startswith("px:")]
+    exit_code = 1 if expected and len(cot_failures) * 2 >= expected else 0
+
+    print(f"\nTotal elapsed: {time.time()-RUN_T0:.1f}s  |  "
+          f"COT failures: {len(cot_failures)}/{expected}  |  exit={exit_code}")
+
     # Force-exit without waiting for lingering ICE COM threads or running GC/finalizers
-    os._exit(0)
+    os._exit(exit_code)
