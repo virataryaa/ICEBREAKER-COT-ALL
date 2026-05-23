@@ -28,12 +28,19 @@ st.markdown("""
     border:1px solid #e0e4ed !important; border-radius:7px !important;
   }
   div[data-testid="stTabs"] button { font-size:0.81rem !important; font-weight:500; }
+  div[data-testid="stTabs"] button:nth-child(8),
   div[data-testid="stTabs"] button:nth-child(9),
   div[data-testid="stTabs"] button:nth-child(10),
-  div[data-testid="stTabs"] button:nth-child(11),
-  div[data-testid="stTabs"] button:nth-child(12) {
+  div[data-testid="stTabs"] button:nth-child(11) {
     background-color:#f3f4f6 !important;
     border-radius:6px 6px 0 0 !important;
+  }
+  div[data-testid="stTabs"] button:nth-child(12) {
+    background-color:#fce7f3 !important;
+    border-radius:6px 6px 0 0 !important;
+  }
+  div[data-testid="stTabs"] button:nth-child(12) p {
+    color:#be185d !important; font-weight:600 !important;
   }
   hr { border:none !important; border-top:1px solid #e8e8ed !important; margin:.5rem 0 !important; }
   [data-testid="stRadio"] label { font-size:.82rem !important; }
@@ -4534,8 +4541,9 @@ def _na(msg):
 # Fixed tab count — Streamlit preserves the active tab when sidebar filters change.
 tabs = st.tabs([
     "Recap", "Recap (Charts)", "Spec", "Commercial",
-    "Concentration", "Spreading", "Old / New", "Pain Trade",
+    "Concentration", "Spreading", "Old / New",
     "Correlation", "Spec Prediction", "Specs in VaR", "CIT vs Disagg",
+    "Pain Trade Monitor",
 ])
 
 with tabs[0]:  _tab_recap(df, report, color, commodity, is_options)
@@ -4563,16 +4571,17 @@ with tabs[6]:  # Old / New
     else:
         _na("Old / New crop split is not available for this commodity.")
 
-with tabs[7]:  _tab_pain_trade(df, commodity, report, color, is_options)
-with tabs[8]:  _tab_correlation(df, report, color)
-with tabs[9]:  _tab_analysis(df, report, color, commodity)
-with tabs[10]: _tab_spec_var(commodity, df, report, color, start_date, end_date)
+with tabs[7]:  _tab_correlation(df, report, color)
+with tabs[8]:  _tab_analysis(df, report, color, commodity)
+with tabs[9]:  _tab_spec_var(commodity, df, report, color, start_date, end_date)
 
-with tabs[11]:  # CIT vs Disagg
+with tabs[10]:  # CIT vs Disagg
     if commodity in CIT_COMMS and not is_options:
         _tab_comparison(commodity, start_date, end_date, color)
     else:
         _na("CIT vs Disagg comparison is only available for KC, CC, SB, and CT with a non-Options report.")
+
+with tabs[11]: _tab_pain_trade(df, commodity, report, color, is_options)
 
 # Pairs tab hidden — re-enable by adding "Pairs" to st.tabs() and wiring:
 # with tabs[11]:
