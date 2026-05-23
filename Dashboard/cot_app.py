@@ -4511,7 +4511,11 @@ def render_pain_trade(d, commodity, report, color, is_options):
                                      ("border-bottom", "2px solid #1e293b !important"),
                                      ("background", "#e2e8f0"), ("font-weight", "700")]},
                       ]))
-            st.dataframe(styled, width='stretch')
+            # Must render as HTML — st.dataframe strips all pandas Styler CSS
+            st.markdown(
+                f'<div style="overflow-x:auto">{styled.to_html(escape=False)}</div>',
+                unsafe_allow_html=True,
+            )
             st.markdown(
                 f"<p style='font-size:.68rem;color:#999;margin-top:4px'>"
                 f"Values in k lots · {len(tbl_df)} COT observations in selected period · "
