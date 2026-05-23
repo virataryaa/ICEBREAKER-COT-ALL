@@ -2466,6 +2466,9 @@ def render_analysis(d, report, color, commodity="KC"):
             unsafe_allow_html=True)
 
         win_label = f"  ·  {lookback}" if lookback != "All" else ""
+        dates_win    = pd.to_datetime(d["Date"].reset_index(drop=True))
+        dates_common = dates_win[common]
+        latest_pt_lbl = dates_common.iloc[-1].strftime("%d %b %Y")
         fig_reg = go.Figure()
         fig_reg.add_trace(go.Scatter(x=x_hist, y=y_hist, mode="markers",
             marker=dict(color=color, size=6, opacity=0.55, line=dict(width=0.4, color="white")),
@@ -2473,6 +2476,18 @@ def render_analysis(d, report, color, commodity="KC"):
             showlegend=False))
         fig_reg.add_trace(go.Scatter(x=x_line, y=y_line, mode="lines",
             line=dict(color=color, width=2, dash="dash"), showlegend=False))
+        fig_reg.add_trace(go.Scatter(
+            x=[x_hist[-1]], y=[y_hist[-1]], mode="markers", name="Latest",
+            marker=dict(symbol="star", size=14, color="#f59e0b",
+                        line=dict(width=1.2, color="white")),
+            hovertemplate=f"<b>{latest_pt_lbl}</b><br>ΔPx%: {x_hist[-1]:.1f}%<br>Δ{sel}: {y_hist[-1]:+.1f}k<extra></extra>"))
+        fig_reg.add_annotation(
+            x=x_hist[-1], y=y_hist[-1],
+            text=f"<b>{latest_pt_lbl}</b>",
+            showarrow=True, arrowhead=2, arrowwidth=1.2, arrowcolor="#f59e0b",
+            font=dict(size=9, color="#92400e"),
+            bgcolor="rgba(255,237,213,0.92)", borderpad=4,
+            bordercolor="#f59e0b", borderwidth=1, ax=30, ay=-36)
         fig_reg.add_annotation(x=0.02, y=0.98, xref="paper", yref="paper",
             text=f"R² = {r2:.3f}  |  n = {len(x_hist)} obs{win_label}",
             showarrow=False, font=dict(size=10.5, color="#374151"),
@@ -2491,52 +2506,51 @@ def render_analysis(d, report, color, commodity="KC"):
             yaxis=dict(**_ax(), title_text=f"Δ{sel} (k lots)"))
         st.plotly_chart(fig_reg, width='stretch')
 
-        with st.expander("Actual vs Predicted — weekly change (last 1Y)", expanded=False):
-            bar_win = st.radio(
-                "History",
-                ["1Y", "2Y", "5Y", "All"],
-                index=0, horizontal=True,
-                key="avp_window",
-            )
-            bar_n_map = {"1Y": 52, "2Y": 104, "5Y": 260}
-            all_dates  = pd.to_datetime(_d_dates)
-            ds_full    = _sel_full.diff()
-            pred_full  = beta * _px_chg_full + alpha
-            bar_mask   = ~(ds_full.isna() | _px_chg_full.isna())
-            _all_dates_v  = all_dates[bar_mask].values
-            _all_actual   = ds_full[bar_mask].values
-            _all_pred     = pred_full[bar_mask].values
-            bar_n         = bar_n_map.get(bar_win, len(_all_dates_v))
-            bar_dates     = _all_dates_v[-bar_n:]
-            bar_actual    = _all_actual[-bar_n:]
-            bar_pred      = _all_pred[-bar_n:]
-            bar_labels    = pd.to_datetime(bar_dates).strftime("%d %b '%y")
-            residuals     = bar_actual - bar_pred
-            res_clr       = [C_LONG if v >= 0 else C_SHORT for v in residuals]
-            win_txt       = bar_win if bar_win != "All" else "full history"
-            bar_h         = max(340, min(520, 280 + len(bar_dates) * 2))
-            fig_avp = go.Figure()
-            fig_avp.add_trace(go.Bar(
-                x=bar_labels, y=bar_actual,
-                name="Actual", marker_color=color, opacity=0.75,
-                hovertemplate="<b>%{x}</b><br>Actual Δ: %{y:+.2f}k<extra></extra>"))
-            fig_avp.add_trace(go.Bar(
-                x=bar_labels, y=bar_pred,
-                name="Predicted", marker_color="#94a3b8", opacity=0.65,
-                hovertemplate="<b>%{x}</b><br>Predicted Δ: %{y:+.2f}k<extra></extra>"))
-            fig_avp.add_trace(go.Scatter(
-                x=bar_labels, y=residuals, name="Error (Actual − Pred)",
-                mode="markers", marker=dict(color=res_clr, size=5, symbol="diamond"),
-                hovertemplate="<b>%{x}</b><br>Error (Actual − Pred): %{y:+.2f}k<extra></extra>"))
-            fig_avp.update_layout(**_BASE, height=bar_h, barmode="group",
-                title=dict(text=f"Actual vs Predicted Δ{sel}  ·  {win_txt}",
-                           font=dict(size=11, color="#374151"), x=0),
-                margin=dict(l=56, r=24, t=44, b=80),
-                xaxis={**_ax(x=True), "tickangle": -45, "tickfont": dict(size=8)},
-                yaxis=dict(**_ax(), title_text="Δ (k lots)"),
-                legend=dict(orientation="h", y=1.08, x=1, xanchor="right",
-                            font=dict(size=9)))
-            st.plotly_chart(fig_avp, width='stretch')
+        bar_win = st.radio(
+            "History",
+            ["1Y", "2Y", "5Y", "All"],
+            index=0, horizontal=True,
+            key="avp_window",
+        )
+        bar_n_map = {"1Y": 52, "2Y": 104, "5Y": 260}
+        all_dates  = pd.to_datetime(_d_dates)
+        ds_full    = _sel_full.diff()
+        pred_full  = beta * _px_chg_full + alpha
+        bar_mask   = ~(ds_full.isna() | _px_chg_full.isna())
+        _all_dates_v  = all_dates[bar_mask].values
+        _all_actual   = ds_full[bar_mask].values
+        _all_pred     = pred_full[bar_mask].values
+        bar_n         = bar_n_map.get(bar_win, len(_all_dates_v))
+        bar_dates     = _all_dates_v[-bar_n:]
+        bar_actual    = _all_actual[-bar_n:]
+        bar_pred      = _all_pred[-bar_n:]
+        bar_labels    = pd.to_datetime(bar_dates).strftime("%d %b '%y")
+        residuals     = bar_actual - bar_pred
+        res_clr       = [C_LONG if v >= 0 else C_SHORT for v in residuals]
+        win_txt       = bar_win if bar_win != "All" else "full history"
+        bar_h         = max(340, min(520, 280 + len(bar_dates) * 2))
+        fig_avp = go.Figure()
+        fig_avp.add_trace(go.Bar(
+            x=bar_labels, y=bar_actual,
+            name="Actual", marker_color=color, opacity=0.75,
+            hovertemplate="<b>%{x}</b><br>Actual Δ: %{y:+.2f}k<extra></extra>"))
+        fig_avp.add_trace(go.Bar(
+            x=bar_labels, y=bar_pred,
+            name="Predicted", marker_color="#94a3b8", opacity=0.65,
+            hovertemplate="<b>%{x}</b><br>Predicted Δ: %{y:+.2f}k<extra></extra>"))
+        fig_avp.add_trace(go.Scatter(
+            x=bar_labels, y=residuals, name="Error (Actual − Pred)",
+            mode="markers", marker=dict(color=res_clr, size=5, symbol="diamond"),
+            hovertemplate="<b>%{x}</b><br>Error (Actual − Pred): %{y:+.2f}k<extra></extra>"))
+        fig_avp.update_layout(**_BASE, height=bar_h, barmode="group",
+            title=dict(text=f"Actual vs Predicted Δ{sel}  ·  {win_txt}",
+                       font=dict(size=11, color="#374151"), x=0),
+            margin=dict(l=56, r=24, t=44, b=80),
+            xaxis={**_ax(x=True), "tickangle": -45, "tickfont": dict(size=8)},
+            yaxis=dict(**_ax(), title_text="Δ (k lots)"),
+            legend=dict(orientation="h", y=1.08, x=1, xanchor="right",
+                        font=dict(size=9)))
+        st.plotly_chart(fig_avp, width='stretch')
 
     st.markdown("---")
 
