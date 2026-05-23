@@ -1647,6 +1647,41 @@ _RECAP_CSS = """
 .rtbl .sub{background:#f9fafb;font-size:.70rem;color:#555;font-weight:600;text-align:center}
 .rtbl tbody tr:hover td{background:#f0f9ff!important}
 .rpos{color:#16a34a}.rneg{color:#dc2626}
+.rtbl th.sub[data-tt]{position:relative;cursor:help}
+.rtbl th.sub[data-tt]::after{
+  content:attr(data-tt);
+  position:absolute;
+  top:calc(100% + 4px);
+  left:50%;
+  transform:translateX(-50%);
+  background:#1e293b;
+  color:#f1f5f9;
+  padding:5px 10px;
+  border-radius:5px;
+  font-size:.69rem;
+  font-weight:400;
+  white-space:nowrap;
+  z-index:9999;
+  pointer-events:none;
+  opacity:0;
+  transition:opacity .15s ease;
+  box-shadow:0 2px 8px rgba(0,0,0,.30);
+  line-height:1.5;
+}
+.rtbl th.sub[data-tt]::before{
+  content:'';
+  position:absolute;
+  top:100%;
+  left:50%;
+  transform:translateX(-50%);
+  border:5px solid transparent;
+  border-bottom-color:#1e293b;
+  z-index:9999;
+  opacity:0;
+  transition:opacity .15s ease;
+  pointer-events:none;
+}
+.rtbl th.sub[data-tt]:hover::after,.rtbl th.sub[data-tt]:hover::before{opacity:1}
 </style>
 """
 
@@ -1684,7 +1719,7 @@ def _recap_html(df, signed=False, change_table=False, scroll=False, signed_group
     for c in cols:
         g = c[0]
         tip = _COLUMN_TOOLTIPS.get(c)
-        tip_attr = f' title="{tip}" style="cursor:help"' if tip else ''
+        tip_attr = f' data-tt="{tip}"' if tip else ''
         label = f'{c[1]}&thinsp;<span style="font-size:.6rem;color:#9ca3af;font-weight:400">ⓘ</span>' if tip else c[1]
         if g in _RECAP_GROUP_TEXT:
             bg = _RECAP_GROUP_BG.get(g, "#f9fafb")
