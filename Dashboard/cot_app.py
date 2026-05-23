@@ -4234,17 +4234,30 @@ def render_pain_trade(d, commodity, report, color, is_options):
 
     # ── Last N weeks selector ─────────────────────────────────────────────────
     _pt_max = df_pt["Date"].max()
-    _nw_opts = {"13w": 13, "26w": 26, "52w": 52, "104w": 104, "All": None}
+    _pt_min = df_pt["Date"].min()
+    _nw_opts = {"13w": 13, "26w": 26, "52w": 52, "Custom": None}
     _nw_sel  = st.radio("Show last", list(_nw_opts.keys()), index=0,
                         horizontal=True, key=f"pt_nw_{commodity}_{report}")
     _n_weeks = _nw_opts[_nw_sel]
 
     # diff already computed on full history — only slice for display
-    if _n_weeks:
-        _pt_from = _pt_max - pd.Timedelta(weeks=_n_weeks)
-        dff = df_pt[df_pt["Date"] >= _pt_from].copy()
+    if _nw_sel == "Custom":
+        _cust_def = (pd.Timestamp(_pt_max) - pd.Timedelta(weeks=52)).date()
+        _cust_min = _pt_min.date()
+        _cust_max = _pt_max.date()
+        _c_from, _c_to = st.slider(
+            "Custom range",
+            min_value=_cust_min, max_value=_cust_max,
+            value=(max(_cust_min, _cust_def), _cust_max),
+            format="DD MMM YYYY",
+            key=f"pt_cust_{commodity}_{report}",
+        )
+        dff = df_pt[
+            (df_pt["Date"] >= pd.Timestamp(_c_from)) &
+            (df_pt["Date"] <= pd.Timestamp(_c_to))
+        ].copy()
     else:
-        dff = df_pt.copy()
+        dff = df_pt[df_pt["Date"] >= _pt_max - pd.Timedelta(weeks=_n_weeks)].copy()
 
     last_cot_date = dff["Date"].max()
     last_cot_str  = last_cot_date.strftime("%d/%m/%Y") if pd.notna(last_cot_date) else "—"
