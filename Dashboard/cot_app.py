@@ -4527,7 +4527,12 @@ def _tab_pairs(start_date, end_date, commodity):
 
 @st.fragment
 def _tab_pain_trade(d, commodity, report, color, is_options):
-    render_pain_trade(d, commodity, report, color, is_options)
+    try:
+        render_pain_trade(d, commodity, report, color, is_options)
+    except Exception as e:
+        import traceback
+        st.error(f"Pain Trade Monitor failed for {commodity}/{report}:\n\n{type(e).__name__}: {e}")
+        st.code(traceback.format_exc(), language="python")
 
 
 def _na(msg):
