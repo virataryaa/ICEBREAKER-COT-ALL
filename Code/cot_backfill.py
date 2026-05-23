@@ -41,7 +41,6 @@ import os
 import queue
 import sys
 import threading
-import pythoncom
 import icepython as ice
 import pandas as pd
 from pathlib import Path
@@ -229,19 +228,16 @@ DISAGG_FINAL_COLS = (
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def fetch_ts(symbol, fields, start, end):
     def _call(q):
-        pythoncom.CoInitialize()
         try:
             data = ice.get_timeseries(symbol, fields, granularity="D",
                                       start_date=start, end_date=end)
             q.put(list(data))
         except Exception as e:
             q.put(e)
-        finally:
-            pythoncom.CoUninitialize()
     for attempt in range(FETCH_RETRIES + 1):
         try:
             q = queue.Queue()
-            t = threading.Thread(target=_call, args=(q,), daemon=True)
+            t = threading.Thread(target=_call, args=(q,))
             t.start()
             try:
                 rows = q.get(timeout=FETCH_TIMEOUT)
@@ -289,19 +285,16 @@ def fetch_ts_chunked(symbol, fields, start, end):
 
 def fetch_px(symbol, start, end):
     def _call(q):
-        pythoncom.CoInitialize()
         try:
             data = ice.get_timeseries(symbol, ["Settle"], granularity="D",
                                       start_date=start, end_date=end)
             q.put(list(data))
         except Exception as e:
             q.put(e)
-        finally:
-            pythoncom.CoUninitialize()
     for attempt in range(FETCH_RETRIES + 1):
         try:
             q = queue.Queue()
-            t = threading.Thread(target=_call, args=(q,), daemon=True)
+            t = threading.Thread(target=_call, args=(q,))
             t.start()
             try:
                 rows = q.get(timeout=FETCH_TIMEOUT)
