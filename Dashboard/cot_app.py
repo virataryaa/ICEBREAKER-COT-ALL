@@ -877,13 +877,6 @@ def render_spreading(d, color, df_all_crops=None, commodity=""):
         st.caption("Denominator: All Crop Total OI")
     ylabel = "k lots" if unit=="k lots" else "% of OI"
 
-    latest = d.iloc[-1]
-    kpi_items = []
-    for lbl,(col,clr) in SPREAD_COLS.items():
-        if col in d.columns:
-            kpi_items.append((lbl, _val(latest,col,unit), ""))
-    kpi_row(kpi_items, color)
-
     # All spreads on one timeseries
     traces = []
     for lbl,(col,clr) in SPREAD_COLS.items():
