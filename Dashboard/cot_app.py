@@ -388,20 +388,21 @@ def show_table(d: pd.DataFrame, pos_cols: list, chg_cols: list, label: str, n=60
 # ══════════════════════════════════════════════════════════════════════════════
 # CHART FUNCTIONS
 # ══════════════════════════════════════════════════════════════════════════════
-def _add_price(fig, d, secondary_y=True):
+def _add_price(fig, d, secondary_y=True, legendonly=False):
     if "Px" not in d.columns or d["Px"].isna().all(): return
     fig.add_trace(go.Scatter(
         x=d["Date"], y=d["Px"], name="Rollex Px",
         line=dict(color=C_PRICE, width=1.2, dash="dot"), opacity=0.65,
+        visible="legendonly" if legendonly else True,
         hovertemplate="<b>%{x|%d %b %Y}</b><br>Rollex Px: %{y:.2f}<extra></extra>",
     ), secondary_y=secondary_y)
 
-def timeseries(d, series, title, ylabel, height=360, price=True):
+def timeseries(d, series, title, ylabel, height=360, price=True, px_legendonly=False):
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     for s in series:
         fig.add_trace(s["trace"], secondary_y=False)
     if price:
-        _add_price(fig, d, secondary_y=True)
+        _add_price(fig, d, secondary_y=True, legendonly=px_legendonly)
     fig.update_layout(
         **_BASE, height=height,
         title=dict(text=title, font=dict(size=12, color="#333"), x=0),
@@ -727,8 +728,9 @@ def render_spec(d, report, color):
     if spc and spc in d.columns:
         traces.append({"trace": go.Scatter(x=d["Date"], y=_get_y(d, spc, unit), name="Spread",
             line=dict(color="#94a3b8", width=1.4, dash="dot"),
+            visible="legendonly",
             hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>Spread: %{{y:.1f}}{suffix}<extra></extra>")})
-    st.plotly_chart(timeseries(d, traces, f"{cat}  ·  {ylabel}", ylabel), width='stretch')
+    st.plotly_chart(timeseries(d, traces, f"{cat}  ·  {ylabel}", ylabel, px_legendonly=True), width='stretch')
 
     # % of Total OI chart
     oi = d["Total OI"].replace(0, np.nan) if "Total OI" in d.columns else None
@@ -750,10 +752,11 @@ def render_spec(d, report, color):
             pct_traces.append({"trace": go.Scatter(
                 x=d["Date"], y=(d[spc] / oi * 100).round(2), name="Spread %",
                 line=dict(color="#94a3b8", width=1.4, dash="dot"),
+                visible="legendonly",
                 hovertemplate="<b>%{x|%d %b %Y}</b><br>Spread: %{y:.1f}%<extra></extra>")})
         if pct_traces:
             st.caption("Denominator: All Crop Total OI")
-            st.plotly_chart(timeseries(d, pct_traces, f"{cat}  ·  % of Total OI", "% of OI"), width='stretch')
+            st.plotly_chart(timeseries(d, pct_traces, f"{cat}  ·  % of Total OI", "% of OI", px_legendonly=True), width='stretch')
 
     # Stacked Long Add/Liq + Short Add/Cover bars + Price
     st.plotly_chart(bars_combined(d, lc, sc, nc, f"{cat} — weekly flow  ·  k lots", color),
