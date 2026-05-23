@@ -31,8 +31,7 @@ st.markdown("""
   div[data-testid="stTabs"] button:nth-child(8),
   div[data-testid="stTabs"] button:nth-child(9),
   div[data-testid="stTabs"] button:nth-child(10),
-  div[data-testid="stTabs"] button:nth-child(11),
-  div[data-testid="stTabs"] button:nth-child(12) {
+  div[data-testid="stTabs"] button:nth-child(11) {
     background-color:#f3f4f6 !important;
     border-radius:6px 6px 0 0 !important;
   }
@@ -4221,19 +4220,18 @@ def _wire_core(tabs):
 
 def _wire_advanced(tabs):
     _wire_core(tabs)  # indices 0-6 are identical
-    with tabs[7]:  # CIT vs Disagg
+    with tabs[7]:  _tab_correlation(df, report, color)
+    with tabs[8]:  _tab_analysis(df, report, color, commodity)
+    with tabs[9]:  _tab_spec_var(commodity, df, report, color, start_date, end_date)
+    with tabs[10]:  # CIT vs Disagg
         if commodity in CIT_COMMS and not is_options:
             _tab_comparison(commodity, start_date, end_date, color)
         else:
             _na("CIT vs Disagg comparison is only available for KC, CC, SB, and CT with a non-Options report.")
-    with tabs[8]:  # Pairs
-        if show_pairs:
-            _tab_pairs(start_date, end_date, commodity)
-        else:
-            _na("Pairs view is available for KC, RC, CC, LCC, SB, and LSU.")
-    with tabs[9]:  _tab_spec_var(commodity, df, report, color, start_date, end_date)
-    with tabs[10]: _tab_analysis(df, report, color, commodity)
-    with tabs[11]: _tab_correlation(df, report, color)
+    # Pairs tab hidden for now — keep wiring below when re-enabled:
+    # with tabs[11]:
+    #     if show_pairs: _tab_pairs(start_date, end_date, commodity)
+    #     else: _na("Pairs view is available for KC, RC, CC, LCC, SB, and LSU.")
 
 
 _CORE_LABELS = [
@@ -4241,7 +4239,7 @@ _CORE_LABELS = [
     "Concentration", "Spreading", "Old / New",
 ]
 _ADV_LABELS = _CORE_LABELS + [
-    "CIT vs Disagg", "Pairs", "Specs in VaR", "Spec Prediction", "Correlation",
+    "Correlation", "Spec Prediction", "Specs in VaR", "CIT vs Disagg",
 ]
 
 if view == "Core":
