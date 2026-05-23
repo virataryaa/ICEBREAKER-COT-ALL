@@ -4235,7 +4235,7 @@ def render_pain_trade(d, commodity, report, color, is_options):
     # ── Local date range slider — defaults to last 52 weeks ──────────────────
     _pt_max  = df_pt["Date"].max().date()
     _pt_min  = df_pt["Date"].min().date()
-    _pt_def  = max(_pt_min, (_pt_max - pd.Timedelta(weeks=52)).date())
+    _pt_def  = max(_pt_min, (pd.Timestamp(_pt_max) - pd.Timedelta(weeks=52)).date())
     _sl_key  = f"pt_sl_{commodity}_{report}"
     _pt_from, _pt_to = st.slider(
         "Date range",
