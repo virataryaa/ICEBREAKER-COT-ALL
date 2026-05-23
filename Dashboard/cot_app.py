@@ -4209,6 +4209,14 @@ def render_pain_trade(d, commodity, report, color, is_options):
     df_pt = d.copy().sort_values("Date").reset_index(drop=True)
     df_pt["Rollex"] = pd.to_numeric(df_pt["Px"], errors="coerce")
 
+    # Clip each position column to Total OI — guards against CFTC data entry errors
+    # where a single row has an absurdly large value (e.g. LCC Non Rep Long 2.6bn in 2019)
+    if "Total OI" in df_pt.columns:
+        oi_cap = pd.to_numeric(df_pt["Total OI"], errors="coerce").clip(lower=1)
+        for _pc in [spec_l, spec_s, long3, short3, "Non Rep Long", "Non Rep Short"]:
+            if _pc in df_pt.columns:
+                df_pt[_pc] = pd.to_numeric(df_pt[_pc], errors="coerce").clip(upper=oi_cap)
+
     if use_third:
         gross_long  = (df_pt[spec_l] + df_pt["Non Rep Long"]  + df_pt[long3])  / 1000
         gross_short = (df_pt[spec_s] + df_pt["Non Rep Short"] + df_pt[short3]) / 1000
