@@ -3279,9 +3279,6 @@ with st.sidebar:
         "margin-bottom:16px;letter-spacing:.01em'>COMPREHENSIVE COT</div>",
         unsafe_allow_html=True)
 
-    view = st.radio("View", ["Core", "Advanced"], horizontal=True, key="rb_view")
-    st.markdown("---")
-
     commodity = st.selectbox("Commodity", list(COMM_NAMES.keys()),
                              format_func=lambda x: COMM_NAMES[x], key="sb_commodity")
     color = COMM_COLORS[commodity]
@@ -4192,57 +4189,49 @@ def _na(msg):
         unsafe_allow_html=True)
 
 
-# Tab count is fixed per view so Streamlit preserves the active tab when
-# sidebar filters change. Switching Core ↔ Advanced resets to tab 0.
-def _wire_core(tabs):
-    with tabs[0]:  _tab_recap(df, report, color, commodity, is_options)
-    with tabs[1]:  _tab_recap_charts(df, report, color, commodity)
-    with tabs[2]:  _tab_spec(df, report, color)
-    with tabs[3]:  _tab_commercial(df, report, color)
-    with tabs[4]:  # Concentration
-        if report == "CIT":
-            _na("Concentration data is only available in the Disaggregated report.")
-        else:
-            _tab_concentration(df, color)
-    with tabs[5]:  # Spreading
-        if report == "Disagg" and not is_options:
-            _tab_spreading(df, color, df_all_crops, commodity)
-        else:
-            _na("Spreading positions are only available in the Disaggregated report (Fut or F&O).")
-    with tabs[6]:  # Old / New
-        if report == "CIT":
-            _na("Old / New crop split is only available in the Disaggregated report.")
-        elif df_all_crops is not None:
-            _tab_old_new(df_all_crops, color, commodity)
-        else:
-            _na("Old / New crop split is not available for this commodity.")
-
-
-def _wire_advanced(tabs):
-    _wire_core(tabs)  # indices 0-6 are identical
-    with tabs[7]:  _tab_correlation(df, report, color)
-    with tabs[8]:  _tab_analysis(df, report, color, commodity)
-    with tabs[9]:  _tab_spec_var(commodity, df, report, color, start_date, end_date)
-    with tabs[10]:  # CIT vs Disagg
-        if commodity in CIT_COMMS and not is_options:
-            _tab_comparison(commodity, start_date, end_date, color)
-        else:
-            _na("CIT vs Disagg comparison is only available for KC, CC, SB, and CT with a non-Options report.")
-    # Pairs tab hidden for now — keep wiring below when re-enabled:
-    # with tabs[11]:
-    #     if show_pairs: _tab_pairs(start_date, end_date, commodity)
-    #     else: _na("Pairs view is available for KC, RC, CC, LCC, SB, and LSU.")
-
-
-_CORE_LABELS = [
+# Fixed tab count — Streamlit preserves the active tab when sidebar filters change.
+tabs = st.tabs([
     "Recap", "Recap (Charts)", "Spec", "Commercial",
     "Concentration", "Spreading", "Old / New",
-]
-_ADV_LABELS = _CORE_LABELS + [
     "Correlation", "Spec Prediction", "Specs in VaR", "CIT vs Disagg",
-]
+])
 
-if view == "Core":
-    _wire_core(st.tabs(_CORE_LABELS))
-else:
-    _wire_advanced(st.tabs(_ADV_LABELS))
+with tabs[0]:  _tab_recap(df, report, color, commodity, is_options)
+with tabs[1]:  _tab_recap_charts(df, report, color, commodity)
+with tabs[2]:  _tab_spec(df, report, color)
+with tabs[3]:  _tab_commercial(df, report, color)
+
+with tabs[4]:  # Concentration
+    if report == "CIT":
+        _na("Concentration data is only available in the Disaggregated report.")
+    else:
+        _tab_concentration(df, color)
+
+with tabs[5]:  # Spreading
+    if report == "Disagg" and not is_options:
+        _tab_spreading(df, color, df_all_crops, commodity)
+    else:
+        _na("Spreading positions are only available in the Disaggregated report (Fut or F&O).")
+
+with tabs[6]:  # Old / New
+    if report == "CIT":
+        _na("Old / New crop split is only available in the Disaggregated report.")
+    elif df_all_crops is not None:
+        _tab_old_new(df_all_crops, color, commodity)
+    else:
+        _na("Old / New crop split is not available for this commodity.")
+
+with tabs[7]:  _tab_correlation(df, report, color)
+with tabs[8]:  _tab_analysis(df, report, color, commodity)
+with tabs[9]:  _tab_spec_var(commodity, df, report, color, start_date, end_date)
+
+with tabs[10]:  # CIT vs Disagg
+    if commodity in CIT_COMMS and not is_options:
+        _tab_comparison(commodity, start_date, end_date, color)
+    else:
+        _na("CIT vs Disagg comparison is only available for KC, CC, SB, and CT with a non-Options report.")
+
+# Pairs tab hidden — re-enable by adding "Pairs" to st.tabs() and wiring:
+# with tabs[11]:
+#     if show_pairs: _tab_pairs(start_date, end_date, commodity)
+#     else: _na("Pairs view is available for KC, RC, CC, LCC, SB, and LSU.")
