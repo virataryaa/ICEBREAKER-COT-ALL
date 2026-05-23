@@ -28,8 +28,11 @@ st.markdown("""
     border:1px solid #e0e4ed !important; border-radius:7px !important;
   }
   div[data-testid="stTabs"] button { font-size:0.81rem !important; font-weight:500; }
+  div[data-testid="stTabs"] button:nth-child(8),
+  div[data-testid="stTabs"] button:nth-child(9),
   div[data-testid="stTabs"] button:nth-child(10),
-  div[data-testid="stTabs"] button:nth-child(11) {
+  div[data-testid="stTabs"] button:nth-child(11),
+  div[data-testid="stTabs"] button:nth-child(12) {
     background-color:#f3f4f6 !important;
     border-radius:6px 6px 0 0 !important;
   }
