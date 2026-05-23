@@ -4235,7 +4235,7 @@ def render_pain_trade(d, commodity, report, color, is_options):
     # ── Last N weeks selector ─────────────────────────────────────────────────
     _pt_max = df_pt["Date"].max()
     _nw_opts = {"13w": 13, "26w": 26, "52w": 52, "104w": 104, "All": None}
-    _nw_sel  = st.radio("Show last", list(_nw_opts.keys()), index=2,
+    _nw_sel  = st.radio("Show last", list(_nw_opts.keys()), index=0,
                         horizontal=True, key=f"pt_nw_{commodity}_{report}")
     _n_weeks = _nw_opts[_nw_sel]
 
