@@ -2529,19 +2529,34 @@ def render_analysis(d, report, color, commodity="KC"):
         res_clr       = [C_LONG if v >= 0 else C_SHORT for v in residuals]
         win_txt       = bar_win if bar_win != "All" else "full history"
         bar_h         = max(340, min(520, 280 + len(bar_dates) * 2))
+        cd = list(zip(bar_pred, residuals))
         fig_avp = go.Figure()
         fig_avp.add_trace(go.Bar(
             x=bar_labels, y=bar_actual,
-            name="Actual", marker_color=color, opacity=0.75,
-            hovertemplate="<b>%{x}</b><br>Actual Δ: %{y:+.2f}k<extra></extra>"))
+            customdata=cd, name="Actual", marker_color=color, opacity=0.75,
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Actual: %{y:+.2f}k<br>"
+                "Predicted: %{customdata[0]:+.2f}k<br>"
+                "Error: %{customdata[1]:+.2f}k<extra></extra>")))
         fig_avp.add_trace(go.Bar(
             x=bar_labels, y=bar_pred,
-            name="Predicted", marker_color="#94a3b8", opacity=0.65,
-            hovertemplate="<b>%{x}</b><br>Predicted Δ: %{y:+.2f}k<extra></extra>"))
+            customdata=cd, name="Predicted", marker_color="#94a3b8", opacity=0.65,
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Actual: %{customdata[0]:+.2f}k<br>"
+                "Predicted: %{y:+.2f}k<br>"
+                "Error: %{customdata[1]:+.2f}k<extra></extra>")))
         fig_avp.add_trace(go.Scatter(
-            x=bar_labels, y=residuals, name="Error (Actual − Pred)",
+            x=bar_labels, y=residuals,
+            customdata=list(zip(bar_actual, bar_pred)),
+            name="Error (Actual − Pred)",
             mode="markers", marker=dict(color=res_clr, size=5, symbol="diamond"),
-            hovertemplate="<b>%{x}</b><br>Error (Actual − Pred): %{y:+.2f}k<extra></extra>"))
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Actual: %{customdata[0]:+.2f}k<br>"
+                "Predicted: %{customdata[1]:+.2f}k<br>"
+                "Error: %{y:+.2f}k<extra></extra>")))
         fig_avp.update_layout(**_BASE, height=bar_h, barmode="group",
             title=dict(text=f"Actual vs Predicted Δ{sel}  ·  {win_txt}",
                        font=dict(size=11, color="#374151"), x=0),
@@ -2603,9 +2618,13 @@ def render_analysis(d, report, color, commodity="KC"):
     else:
         st.info("Not enough overlapping data for pairwise correlation.")
 
-    st.markdown("---")
+    # scatter sections moved to dedicated Correlation tab (render_correlation)
 
-    # ── Section 3: Custom scatter (existing) ──────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CORRELATION TAB — Price vs Positioning, COT cross-scatter, 3D scatters
+# ══════════════════════════════════════════════════════════════════════════════
+def render_correlation(d, report, color):
     all_opts = [c for c in (
         ["Spec Net","Comm Net","Index Net","Non Rep Net"] if report=="CIT"
         else ["MM Net","Comm Net","Swap Net","Other Net","Non Rep Net"]
@@ -2614,7 +2633,7 @@ def render_analysis(d, report, color, commodity="KC"):
          "Other Long","Other Short","Non Rep Long","Non Rep Short"]
         if c in d.columns]
 
-    with st.expander("Price vs Positioning — scatter", expanded=False):
+    with st.expander("Price vs Positioning — scatter", expanded=True):
         c1, _ = st.columns([2,5])
         with c1: sel2 = st.selectbox("COT element", all_opts, key="anal_col_leg")
         if sel2 and "Px" in d.columns:
@@ -2655,7 +2674,7 @@ def render_analysis(d, report, color, commodity="KC"):
                         yaxis=dict(**_ax(),title_text=f"{sel2} (k lots)"))
                     st.plotly_chart(fig2, width='stretch')
 
-    with st.expander("COT vs COT Cross-Scatter", expanded=False):
+    with st.expander("COT vs COT Cross-Scatter", expanded=True):
         c1, c2 = st.columns(2)
         with c1: xs_sel = st.multiselect("X axis (summed if multiple)", all_opts, default=[all_opts[0]], key="xs_x")
         with c2: ys_sel = st.multiselect("Y axis (summed if multiple)", all_opts, default=[all_opts[min(1,len(all_opts)-1)]], key="xs_y")
@@ -2670,7 +2689,6 @@ def render_analysis(d, report, color, commodity="KC"):
                     f"{' + '.join(xs_avail)}  vs  {' + '.join(ys_avail)}",
                     f"X Δ (k lots)","Y Δ (k lots)"), width='stretch')
 
-    # ── 3D helpers ────────────────────────────────────────────────────────────
     px_opt = ["Rollex Px"]
     all_3d = px_opt + all_opts
 
@@ -4145,6 +4163,10 @@ def _tab_analysis(d, report, color, commodity):
     render_analysis(d, report, color, commodity)
 
 @st.fragment
+def _tab_correlation(d, report, color):
+    render_correlation(d, report, color)
+
+@st.fragment
 def _tab_comparison(commodity, start_date, end_date, color):
     render_comparison(commodity, start_date, end_date, color)
 
@@ -4170,7 +4192,7 @@ def _na(msg):
 tabs = st.tabs([
     "Recap", "Recap (Charts)", "Spec", "Commercial",
     "Spreading", "Old / New", "Concentration",
-    "CIT vs Disagg", "Pairs", "Specs in VaR", "Spec Prediction & Correlation",
+    "CIT vs Disagg", "Pairs", "Specs in VaR", "Spec Prediction", "Correlation",
 ])
 
 with tabs[0]:  _tab_recap(df, report, color, commodity, is_options)
@@ -4213,3 +4235,5 @@ with tabs[8]:  # Pairs
 with tabs[9]:  _tab_spec_var(commodity, df, report, color, start_date, end_date)
 
 with tabs[10]:  _tab_analysis(df, report, color, commodity)
+
+with tabs[11]:  _tab_correlation(df, report, color)
