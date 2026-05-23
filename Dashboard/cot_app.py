@@ -1184,7 +1184,10 @@ def _seas_chart(wide, metric, title, accent, ylabel="k lots", by_week=True, sm=C
         cur = _current_crop_year_label(sm)
         hist_cols = [c for c in pivot.columns if c != cur]
     hist = pivot[hist_cols] if hist_cols else pivot
-    p25, p75, med = hist.quantile(0.25, axis=1), hist.quantile(0.75, axis=1), hist.median(axis=1)
+    if hist.empty or hist.shape[1] == 0:
+        p25 = p75 = med = pd.Series(dtype=float)
+    else:
+        p25, p75, med = hist.quantile(0.25, axis=1), hist.quantile(0.75, axis=1), hist.median(axis=1)
     r, g, b = int(accent[1:3], 16), int(accent[3:5], 16), int(accent[5:7], 16)
     fig = go.Figure()
     for yr in hist_cols:
@@ -4527,12 +4530,7 @@ def _tab_pairs(start_date, end_date, commodity):
 
 @st.fragment
 def _tab_pain_trade(d, commodity, report, color, is_options):
-    try:
-        render_pain_trade(d, commodity, report, color, is_options)
-    except Exception as e:
-        import traceback
-        st.error(f"Pain Trade Monitor failed for {commodity}/{report}:\n\n{type(e).__name__}: {e}")
-        st.code(traceback.format_exc(), language="python")
+    render_pain_trade(d, commodity, report, color, is_options)
 
 
 def _na(msg):
