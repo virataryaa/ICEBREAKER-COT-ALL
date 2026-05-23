@@ -528,10 +528,12 @@ def seasonal(d, col, color, title):
         # Only current-year data — just show current year line, no band
         fig = go.Figure()
         if cur_year in pivot.columns:
-            cy = pivot[cur_year].dropna()
-            fig.add_trace(go.Scatter(x=cy.index, y=cy.values, mode="lines+markers",
+            cy_raw = s[s["Year"] == cur_year].dropna(subset=["v"]).sort_values("Week")
+            fig.add_trace(go.Scatter(x=cy_raw["Week"], y=cy_raw["v"], mode="lines+markers",
                 name=str(cur_year), line=dict(color=color, width=2.5),
-                marker=dict(size=4.5, color=color)))
+                marker=dict(size=4.5, color=color),
+                customdata=cy_raw["Date"].dt.strftime("%d %b %Y"),
+                hovertemplate="%{customdata}:  %{y:.1f}k<extra></extra>"))
         fig.update_layout(**_BASE, height=340,
             title=dict(text=f"Seasonality — {title}  ·  k lots  (current year only)",
                        font=dict(size=11,color="#999"), x=0),
@@ -556,11 +558,12 @@ def seasonal(d, col, color, title):
         line=dict(color=f"rgba({r},{g},{b},0.5)", width=1.6, dash="dash"),
         hovertemplate="Wk %{x}  Median: %{y:.1f}k<extra></extra>"))
     if cur_year in pivot.columns:
-        cy = pivot[cur_year].dropna()
-        fig.add_trace(go.Scatter(x=cy.index, y=cy.values, mode="lines+markers",
+        cy_raw = s[s["Year"] == cur_year].dropna(subset=["v"]).sort_values("Week")
+        fig.add_trace(go.Scatter(x=cy_raw["Week"], y=cy_raw["v"], mode="lines+markers",
             name=str(cur_year), line=dict(color=color, width=2.5),
             marker=dict(size=4.5, color=color),
-            hovertemplate=f"Wk %{{x}}  {cur_year}: %{{y:.1f}}k<extra></extra>"))
+            customdata=cy_raw["Date"].dt.strftime("%d %b %Y"),
+            hovertemplate="%{customdata}:  %{y:.1f}k<extra></extra>"))
 
     MTICKS = {1:"Jan",5:"Feb",9:"Mar",14:"Apr",18:"May",23:"Jun",
               27:"Jul",32:"Aug",36:"Sep",40:"Oct",45:"Nov",49:"Dec"}
