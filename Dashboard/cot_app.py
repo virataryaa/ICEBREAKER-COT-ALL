@@ -4430,13 +4430,16 @@ def render_pain_trade(d, commodity, report, color, is_options):
             tbl_df["_wlbl"] = tbl_df["Date"].map(week_label_map)
 
             agg = tbl_df.groupby("RxBin", observed=False)
-            grouped          = agg[flow_cols].sum().reindex(bin_lbls).sort_index(ascending=False)
-            grouped["n"]     = agg["_wlbl"].count().reindex(bin_lbls).reindex(grouped.index)
+            # Reverse bin_lbls (highest → lowest) for display; avoid alphabetical sort
+            # which misaligns bins_desc when labels span a digit-length boundary (e.g. "9–10" vs "10–11")
+            bin_lbls_desc = bin_lbls[::-1]
+            grouped          = agg[flow_cols].sum().reindex(bin_lbls_desc)
+            grouped["n"]     = agg["_wlbl"].count().reindex(bin_lbls_desc)
             grouped["Weeks"] = agg["_wlbl"].apply(
                 lambda s: ",  ".join(s.sort_values().tolist())
-            ).reindex(bin_lbls).reindex(grouped.index)
+            ).reindex(bin_lbls_desc)
 
-            bins_desc  = bins[:-1][::-1]
+            bins_desc  = bins[:-1][::-1]   # lower edges descending — aligned with bin_lbls_desc
             above_mask = bins_desc >= window_px if pd.notna(window_px) else np.array([False]*len(bins_desc))
             below_mask = (bins_desc + rx_step) <= window_px if pd.notna(window_px) else np.array([False]*len(bins_desc))
 
@@ -4487,12 +4490,6 @@ def render_pain_trade(d, commodity, report, color, is_options):
                           {"selector": "thead th",
                            "props": [("font-size", ".75rem"), ("color", "#444"),
                                      ("font-weight", "600"), ("text-align", "center")]},
-                          {"selector": "tr:nth-last-child(-n+3) td",
-                           "props": [("border-top", "1px solid #ddd"),
-                                     ("background", "#f5f5f7")]},
-                          {"selector": "tr:last-child td",
-                           "props": [("border-top", "2px solid #bbb"),
-                                     ("background", "#ebebef")]},
                           {"selector": "td", "props": [("font-size", ".78rem"),
                                                        ("text-align", "right")]},
                           {"selector": "td:last-child",
@@ -4502,6 +4499,17 @@ def render_pain_trade(d, commodity, report, color, is_options):
                           {"selector": "th.row_heading",
                            "props": [("font-size", ".75rem"), ("text-align", "left"),
                                      ("color", "#555"), ("font-weight", "500")]},
+                          # Summary section — dark top border on first summary row
+                          {"selector": "tr:nth-last-child(3) td, tr:nth-last-child(3) th",
+                           "props": [("border-top", "2.5px solid #1e293b !important"),
+                                     ("background", "#f0f4f8"), ("font-weight", "700")]},
+                          {"selector": "tr:nth-last-child(2) td, tr:nth-last-child(2) th",
+                           "props": [("background", "#f0f4f8"), ("font-weight", "700")]},
+                          # TOTAL row — strongest border + slightly darker bg
+                          {"selector": "tr:last-child td, tr:last-child th",
+                           "props": [("border-top", "2px solid #64748b !important"),
+                                     ("border-bottom", "2px solid #1e293b !important"),
+                                     ("background", "#e2e8f0"), ("font-weight", "700")]},
                       ]))
             st.dataframe(styled, width='stretch')
             st.markdown(
