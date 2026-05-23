@@ -693,21 +693,6 @@ def render_spec(d, report, color):
     lc, sc, nc, spc = cfg["long"], cfg["short"], cfg["net"], cfg["spread"]
     r, g, b = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
 
-    latest = d.iloc[-1]; prev = d.iloc[-2] if len(d)>1 else d.iloc[-1]
-    pxv, pxchg = _px_kpi(latest, prev)
-
-    kpi_items = [
-        ("Long",  _val(latest, lc, unit),       _chg(latest, prev, lc, unit)),
-        ("Short", _val(latest, sc, unit),       _chg(latest, prev, sc, unit)),
-        ("Net",   _val(latest, nc, "k lots"),   _chg(latest, prev, nc, "k lots")),
-        ("Total OI", f"{latest.get('Total OI',np.nan)/1000:.1f}k"
-                     if pd.notna(latest.get('Total OI')) else "—", ""),
-        ("Rollex Px", pxv, pxchg),
-    ]
-    if spc and spc in d.columns:
-        kpi_items.insert(3, ("Spread", _val(latest, spc, unit), _chg(latest, prev, spc, unit)))
-    kpi_row(kpi_items, color)
-
     # Combined timeseries — Long, Short, Net all in selected unit + Price secondary
     ylabel = "k lots" if unit == "k lots" else "% of OI"
     suffix = "k" if unit == "k lots" else "%"
@@ -786,18 +771,6 @@ def render_commercial(d, report, color):
     r, g, b = int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
 
     unit = "k lots"
-    latest = d.iloc[-1]; prev = d.iloc[-2] if len(d)>1 else d.iloc[-1]
-    pxv, pxchg = _px_kpi(latest, prev)
-
-    kpi_items = [
-        ("Long",  _val(latest, lc, unit),       _chg(latest, prev, lc, unit)),
-        ("Short", _val(latest, sc, unit),       _chg(latest, prev, sc, unit)),
-        ("Net",   _val(latest, nc, "k lots"),   _chg(latest, prev, nc, "k lots")),
-        ("Total OI", f"{latest.get('Total OI',np.nan)/1000:.1f}k"
-                     if pd.notna(latest.get('Total OI')) else "—", ""),
-        ("Rollex Px", pxv, pxchg),
-    ]
-    kpi_row(kpi_items, color)
 
     # Combined timeseries — Long, Short, Net in selected unit + Price secondary
     ylabel = "k lots" if unit == "k lots" else "% of OI"
