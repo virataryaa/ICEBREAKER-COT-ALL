@@ -890,12 +890,7 @@ def render_spreading(d, color, df_all_crops=None, commodity=""):
             hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>{lbl}: %{{y:.1f}}<extra></extra>")})
     st.plotly_chart(timeseries(d,traces,f"Spreading by Category  ·  {ylabel}",ylabel), width='stretch')
 
-    # Weekly change per category
     avail = [(lbl,col,clr) for lbl,(col,clr) in SPREAD_COLS.items() if col in d.columns]
-    cols  = st.columns(len(avail))
-    for i,(lbl,col,clr) in enumerate(avail):
-        with cols[i]:
-            st.plotly_chart(bars_weekly(d,col,f"{lbl} Spread — weekly Δ"), width='stretch')
 
     with st.expander("Seasonality", expanded=False):
         ch1,ch2,ch3 = st.columns(3)
