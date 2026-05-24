@@ -4421,8 +4421,9 @@ def render_pain_trade(d, commodity, report, color, is_options):
 
     # ── Rollex bucket table ───────────────────────────────────────────────────
     with st.expander("Positioning by Rollex Level", expanded=False):
-        _tc1, _tc2 = st.columns([1, 1])
-        with _tc2:
+        # Compact controls row: Step | Weeks | (spacer)
+        _c_step, _c_wks, _c_pad = st.columns([0.15, 0.15, 0.70])
+        with _c_wks:
             n_weeks = st.number_input("Weeks", min_value=1, max_value=500, value=13,
                                        step=1, key=f"pt_tbl_wks_{commodity}_{report}")
 
@@ -4432,8 +4433,8 @@ def render_pain_trade(d, commodity, report, color, is_options):
 
         _rx_range  = tbl_df["Rollex"].max() - tbl_df["Rollex"].min() if not tbl_df.empty else 1
         _auto_step = _pt_nice_step(_rx_range)
-        with _tc1:
-            rx_step = st.number_input(f"Rollex step  (auto: {_auto_step})",
+        with _c_step:
+            rx_step = st.number_input(f"Step (auto: {_auto_step})",
                                        min_value=1, value=_auto_step, step=1,
                                        key=f"pt_rx_step_{commodity}_{report}")
 
@@ -4450,8 +4451,8 @@ def render_pain_trade(d, commodity, report, color, is_options):
         )
         _cot_px_str = f"{window_px:.2f}" if pd.notna(window_px) else "—"
         _rx_px_str  = f"{px_latest_rx:.2f}" if pd.notna(px_latest_rx) else "—"
-        _cot_month = f" · {window_active_lbl}" if window_active_lbl else ""
-        _rx_month  = f" · {latest_rx_active_lbl}" if latest_rx_active_lbl else ""
+        _cot_month  = f" · {window_active_lbl}" if window_active_lbl else ""
+        _rx_month   = f" · {latest_rx_active_lbl}" if latest_rx_active_lbl else ""
         st.markdown(
             f"<p style='font-size:.72rem;color:#888;margin:-6px 0 8px 0;letter-spacing:.01em'>"
             f"Latest COT &nbsp;<b style='color:#444'>{_cot_px_str}</b>"
@@ -4467,13 +4468,15 @@ def render_pain_trade(d, commodity, report, color, is_options):
         elif _rx_mode == _opt_rx:
             tbl_window_px, tbl_window_date = px_latest_rx, date_latest_rx
         else:
-            tbl_window_px = st.number_input(
-                "Custom Rollex level",
-                value=float(window_px) if pd.notna(window_px) else 0.0,
-                step=float(rx_step),
-                format="%.1f",
-                key=f"pt_rx_custom_{commodity}_{report}",
-            )
+            _c_custom, _c_pad2 = st.columns([0.2, 0.8])
+            with _c_custom:
+                tbl_window_px = st.number_input(
+                    "Custom level",
+                    value=float(window_px) if pd.notna(window_px) else 0.0,
+                    step=float(rx_step),
+                    format="%.1f",
+                    key=f"pt_rx_custom_{commodity}_{report}",
+                )
             tbl_window_date = "custom"
 
         if not tbl_df.empty and rx_step > 0:
@@ -4573,7 +4576,8 @@ def render_pain_trade(d, commodity, report, color, is_options):
                       ]))
             # Must render as HTML — st.dataframe strips all pandas Styler CSS
             st.markdown(
-                f'<div style="overflow-x:auto">{styled.to_html(escape=False)}</div>',
+                f'<div style="max-width:720px;margin:0 auto;overflow-x:auto">'
+                f'{styled.to_html(escape=False)}</div>',
                 unsafe_allow_html=True,
             )
             _threshold_note = (
