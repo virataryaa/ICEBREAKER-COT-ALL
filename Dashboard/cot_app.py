@@ -3477,12 +3477,34 @@ def _render_one_proximity_table(comm, study_weeks, cit_df, dag_df, start_date, e
                     unsafe_allow_html=True)
         return
 
+    # Fetch the latest active Rollex contract month from the parquet (if present)
+    _rx_raw = load_rollex(comm)
+    _active = ""
+    if not _rx_raw.empty and "active_label" in _rx_raw.columns:
+        _last_lbl = _rx_raw["active_label"].dropna()
+        if not _last_lbl.empty:
+            _active = str(_last_lbl.iloc[-1])
+
+    _short_name = COMM_NAMES[comm].split(' : ')[0]
+    _active_html = (
+        f"<span style='background:#fef3c7;color:#92400e;padding:1px 7px;"
+        f"border-radius:3px;font-size:.65rem;font-weight:700;margin-left:6px'>{_active}</span>"
+        if _active else ""
+    )
+    st.markdown(
+        f"<div style='font-size:.72rem;color:#374151;margin:2px 0 0;font-weight:600'>"
+        f"<span style='color:#1e3a8a'>{_short_name}</span>"
+        f"<span style='color:#9ca3af;font-weight:400'>  ·  Active Rollex:</span>{_active_html}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
     # Trim to study window (last N weeks of COT data)
     df_window = df_comm.tail(int(study_weeks)).reset_index(drop=True)
 
     color  = COMM_COLORS.get(comm, "#444")
     thresh = st.number_input(
-        f"{COMM_NAMES[comm].split(' : ')[0]} · Spec Proximity (k lots)",
+        f"{_short_name} · Spec Proximity (k lots)",
         min_value=0.1, max_value=200.0,
         value=float(_DEFAULT_THRESH.get(comm, 2.0)),
         step=0.5,
