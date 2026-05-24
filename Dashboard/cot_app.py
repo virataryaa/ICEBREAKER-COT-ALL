@@ -4271,6 +4271,13 @@ def render_pain_trade(d, commodity, report, color, is_options):
         window_px   = float(_cot_rx["Rollex"].iloc[-1]) if not _cot_rx.empty else np.nan
         window_date = _cot_rx["Date"].iloc[-1].strftime("%d/%m/%Y") if not _cot_rx.empty else "—"
 
+    # Latest Rollex — most recent daily value (may be ahead of latest COT date)
+    if not rx_daily.empty:
+        px_latest_rx   = float(rx_daily["Rollex"].iloc[-1])
+        date_latest_rx = rx_daily["Date"].iloc[-1].strftime("%d/%m/%Y")
+    else:
+        px_latest_rx, date_latest_rx = window_px, window_date
+
     # ── VISUAL 1 — Spec legs bars + Rollex ───────────────────────────────────
     st.markdown(
         _pt_label(f"{commodity} — Spec Legs Weekly Change ({leg_label}) · Rollex (Right) "
@@ -4416,6 +4423,28 @@ def render_pain_trade(d, commodity, report, color, is_options):
                                        min_value=1, value=_auto_step, step=1,
                                        key=f"pt_rx_step_{commodity}_{report}")
 
+        # ── Threshold Rollex selector (determines Above / Below split) ────────
+        _rx_mode = st.radio(
+            "Threshold Rollex",
+            ["Latest COT", "Latest Rollex", "Custom"],
+            index=0, horizontal=True,
+            key=f"pt_rx_mode_{commodity}_{report}",
+            help="Rollex level used to split bins into Above / Below in the table below.",
+        )
+        if _rx_mode == "Latest COT":
+            tbl_window_px, tbl_window_date = window_px, window_date
+        elif _rx_mode == "Latest Rollex":
+            tbl_window_px, tbl_window_date = px_latest_rx, date_latest_rx
+        else:
+            tbl_window_px = st.number_input(
+                "Custom Rollex level",
+                value=float(window_px) if pd.notna(window_px) else 0.0,
+                step=float(rx_step),
+                format="%.1f",
+                key=f"pt_rx_custom_{commodity}_{report}",
+            )
+            tbl_window_date = "custom"
+
         if not tbl_df.empty and rx_step > 0:
             rx_floor = (tbl_df["Rollex"].min() // rx_step) * rx_step
             rx_ceil  = (tbl_df["Rollex"].max() // rx_step + 1) * rx_step
@@ -4440,19 +4469,19 @@ def render_pain_trade(d, commodity, report, color, is_options):
             ).reindex(bin_lbls_desc)
 
             bins_desc  = bins[:-1][::-1]   # lower edges descending — aligned with bin_lbls_desc
-            above_mask = bins_desc >= window_px if pd.notna(window_px) else np.array([False]*len(bins_desc))
-            below_mask = (bins_desc + rx_step) <= window_px if pd.notna(window_px) else np.array([False]*len(bins_desc))
+            above_mask = bins_desc >= tbl_window_px if pd.notna(tbl_window_px) else np.array([False]*len(bins_desc))
+            below_mask = (bins_desc + rx_step) <= tbl_window_px if pd.notna(tbl_window_px) else np.array([False]*len(bins_desc))
 
             grp_filled = grouped[flow_cols + ["n"]].fillna(0)
             above_row  = grp_filled[above_mask].sum()
             below_row  = grp_filled[below_mask].sum()
-            above_row["Weeks"] = f"≥ {window_px:.0f}" if pd.notna(window_px) else ""
-            below_row["Weeks"] = f"< {window_px:.0f}" if pd.notna(window_px) else ""
+            above_row["Weeks"] = f"≥ {tbl_window_px:.0f}" if pd.notna(tbl_window_px) else ""
+            below_row["Weeks"] = f"< {tbl_window_px:.0f}" if pd.notna(tbl_window_px) else ""
 
             total_row          = grp_filled.sum()
             total_row["Weeks"] = ""
 
-            wpx_lbl = f"{window_px:.0f}" if pd.notna(window_px) else "—"
+            wpx_lbl = f"{tbl_window_px:.0f}" if pd.notna(tbl_window_px) else "—"
             summary_labels = [f"Above  ({wpx_lbl})", f"Below  ({wpx_lbl})", "TOTAL"]
             summary_df = pd.DataFrame([above_row, below_row, total_row], index=summary_labels)
             display_tbl = pd.concat([grouped, summary_df])
@@ -4516,10 +4545,15 @@ def render_pain_trade(d, commodity, report, color, is_options):
                 f'<div style="overflow-x:auto">{styled.to_html(escape=False)}</div>',
                 unsafe_allow_html=True,
             )
+            _threshold_note = (
+                f"threshold Rollex {wpx_lbl} ({tbl_window_date})"
+                if tbl_window_date != "custom"
+                else f"threshold Rollex {wpx_lbl} (custom)"
+            )
             st.markdown(
                 f"<p style='font-size:.68rem;color:#999;margin-top:4px'>"
                 f"Values in k lots · {len(tbl_df)} COT observations in selected period · "
-                f"step = {rx_step}</p>",
+                f"step = {rx_step} · {_threshold_note}</p>",
                 unsafe_allow_html=True,
             )
 
