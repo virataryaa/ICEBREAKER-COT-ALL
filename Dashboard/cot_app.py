@@ -2698,6 +2698,16 @@ def render_analysis(d, report, color, commodity="KC"):
 
         rsqs = [v ** 2 if pd.notna(v) else np.nan for v in corrs]
 
+        # Sort all series by R² descending (NaN treated as 0)
+        _sort_idx  = sorted(range(len(_cot_cols)),
+                            key=lambda i: rsqs[i] if pd.notna(rsqs[i]) else 0,
+                            reverse=True)
+        _cot_cols  = [_cot_cols[i] for i in _sort_idx]
+        rsqs       = [rsqs[i]  for i in _sort_idx]
+        corrs      = [corrs[i] for i in _sort_idx]
+        betas      = [betas[i] for i in _sort_idx]
+        sig_rb     = [sig_rb[i] for i in _sort_idx]
+
         def _bar_colors(vals, sigs, mode="signed"):
             if mode == "unsigned":
                 return ["#0e7490" if s else "#d1d5db" for s in sigs]
@@ -2737,7 +2747,7 @@ def render_analysis(d, report, color, commodity="KC"):
             )
         with _col_r:
             st.plotly_chart(
-                _bar_chart(corrs, sig_rb, "r  (Pearson)", "+.2f", "Correlation with Rollex %Δ"),
+                _bar_chart(corrs, sig_rb, "Pearson Correlation  (r)", "+.2f", "Correlation with Rollex %Δ"),
                 width='stretch',
             )
         with _col_b:
