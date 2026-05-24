@@ -2696,7 +2696,11 @@ def render_analysis(d, report, color, commodity="KC"):
             pvals_rb.append(p_rb)
             sig_rb.append(p_rb <= 0.05 if pd.notna(p_rb) else False)
 
-        def _bar_colors(vals, sigs):
+        rsqs = [v ** 2 if pd.notna(v) else np.nan for v in corrs]
+
+        def _bar_colors(vals, sigs, mode="signed"):
+            if mode == "unsigned":
+                return ["#0e7490" if s else "#d1d5db" for s in sigs]
             return [("#16a34a" if v > 0 else "#dc2626") if s else "#d1d5db"
                     for v, s in zip(vals, sigs)]
 
@@ -2704,16 +2708,17 @@ def render_analysis(d, report, color, commodity="KC"):
             return [f"{v:{fmt}}{'*' if s else ''}" if pd.notna(v) else "—"
                     for v, s in zip(vals, sigs)]
 
-        def _bar_chart(vals, sigs, title_x, fmt, hover_sfx):
+        def _bar_chart(vals, sigs, title_x, fmt, hover_sfx, mode="signed"):
             fig = go.Figure(go.Bar(
                 x=vals, y=_cot_cols, orientation="h",
-                marker_color=_bar_colors(vals, sigs),
+                marker_color=_bar_colors(vals, sigs, mode),
                 text=_bar_text(vals, sigs, fmt),
                 textposition="outside", textfont=dict(size=9, color="#374151"),
                 hovertemplate=f"<b>%{{y}}</b><br>{title_x} = %{{x:.4f}}<br>{hover_sfx}<extra></extra>",
                 cliponaxis=False,
             ))
-            fig.add_vline(x=0, line_color="#9ca3af", line_width=1)
+            if mode == "signed":
+                fig.add_vline(x=0, line_color="#9ca3af", line_width=1)
             fig.update_layout(**_BASE,
                 height=max(280, 26 * len(_cot_cols) + 70),
                 margin=dict(l=130, r=70, t=28, b=36),
@@ -2723,7 +2728,13 @@ def render_analysis(d, report, color, commodity="KC"):
             )
             return fig
 
-        _col_r, _col_b = st.columns(2)
+        _col_r2, _col_r, _col_b = st.columns(3)
+        with _col_r2:
+            st.plotly_chart(
+                _bar_chart(rsqs, sig_rb, "R²", ".3f", "Variance explained vs Rollex %Δ",
+                           mode="unsigned"),
+                width='stretch',
+            )
         with _col_r:
             st.plotly_chart(
                 _bar_chart(corrs, sig_rb, "r  (Pearson)", "+.2f", "Correlation with Rollex %Δ"),
