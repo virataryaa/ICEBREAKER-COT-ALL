@@ -4576,7 +4576,7 @@ def render_pain_trade(d, commodity, report, color, is_options):
                       ]))
             # Must render as HTML — st.dataframe strips all pandas Styler CSS
             st.markdown(
-                f'<div style="max-width:720px;margin:0 auto;overflow-x:auto">'
+                f'<div style="overflow-x:auto">'
                 f'{styled.to_html(escape=False)}</div>',
                 unsafe_allow_html=True,
             )
