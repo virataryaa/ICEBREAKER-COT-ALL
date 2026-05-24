@@ -4450,13 +4450,15 @@ def render_pain_trade(d, commodity, report, color, is_options):
         )
         _cot_px_str = f"{window_px:.2f}" if pd.notna(window_px) else "—"
         _rx_px_str  = f"{px_latest_rx:.2f}" if pd.notna(px_latest_rx) else "—"
+        _cot_month = f" · {window_active_lbl}" if window_active_lbl else ""
+        _rx_month  = f" · {latest_rx_active_lbl}" if latest_rx_active_lbl else ""
         st.markdown(
             f"<p style='font-size:.72rem;color:#888;margin:-6px 0 8px 0;letter-spacing:.01em'>"
             f"Latest COT &nbsp;<b style='color:#444'>{_cot_px_str}</b>"
-            f"<span style='color:#bbb'> &nbsp;{window_date}&nbsp; </span>"
+            f"<span style='color:#bbb'> &nbsp;{window_date}{_cot_month}&nbsp; </span>"
             f"<span style='color:#ccc;padding:0 10px'>|</span>"
             f"Latest Rollex &nbsp;<b style='color:#444'>{_rx_px_str}</b>"
-            f"<span style='color:#bbb'> &nbsp;{date_latest_rx}</span>"
+            f"<span style='color:#bbb'> &nbsp;{date_latest_rx}{_rx_month}</span>"
             f"</p>",
             unsafe_allow_html=True,
         )
