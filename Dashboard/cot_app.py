@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from scipy import stats as scipy_stats
 import streamlit as st
 from pathlib import Path
 
@@ -2595,26 +2596,58 @@ def render_analysis(d, report, color, commodity="KC"):
     pw_df = pd.DataFrame(pw_series).dropna(how="all")
     if len(pw_df) >= 4:
         pw_corr = pw_df.corr()
-        pw_arr = pw_corr.values.copy()
+        pw_arr  = pw_corr.values.copy()
         np.fill_diagonal(pw_arr, np.nan)
-        labels = list(pw_corr.columns)
-        n      = len(labels)
+        labels  = list(pw_corr.columns)
+        n       = len(labels)
+
+        # ── P-value matrix (scipy pearsonr per pair) ──────────────────────────
+        pw_pval = np.full((n, n), np.nan)
+        for i, ci in enumerate(labels):
+            for j, cj in enumerate(labels):
+                if i != j:
+                    _v = pw_df[[ci, cj]].dropna()
+                    if len(_v) >= 4:
+                        _, pw_pval[i, j] = scipy_stats.pearsonr(_v[ci], _v[cj])
+        insig_mask = pw_pval > 0.05   # True = not significant
+
         tick_y = [
             f"<b><span style='font-size:12px'>Rollex %Δ</span></b>"
             if l == "Rollex %Δ" else l
             for l in labels
         ]
-        zv = pw_arr.tolist()
-        tv = [[f"{v:+.2f}" if pd.notna(v) else "" for v in row] for row in zv]
+        zv   = pw_arr.tolist()
+        # Significant cells show value normally; insignificant cells show value in grey italic
+        tv   = []
+        for i, row in enumerate(pw_arr):
+            tr = []
+            for j, v in enumerate(row):
+                if pd.notna(v):
+                    tr.append(f"{v:+.2f}" if not insig_mask[i, j] else f"<i style='opacity:.35'>{v:+.2f}</i>")
+                else:
+                    tr.append("")
+            tv.append(tr)
+
+        # Grey overlay z-array: fill insignificant (non-diagonal) cells
+        grey_z = np.where(insig_mask & ~np.eye(n, dtype=bool), 0.5, np.nan)
+
         cell_h = 34
         fig_pw = go.Figure(go.Heatmap(
             z=zv, x=labels, y=labels,
             colorscale=[[0,"#dc2626"],[0.45,"#fef2f2"],[0.5,"#f9fafb"],[0.55,"#f0fdf4"],[1,"#16a34a"]],
             zmid=0, zmin=-1, zmax=1,
             text=tv, texttemplate="%{text}", textfont=dict(size=9.5, color="#111"),
-            hovertemplate="<b>%{y}</b> vs <b>%{x}</b>: %{z:.3f}<extra></extra>",
+            hovertemplate="<b>%{y}</b> vs <b>%{x}</b>: r=%{z:.3f}<extra></extra>",
             colorbar=dict(title=dict(text="r", side="right"), thickness=12, len=0.72,
                           tickvals=[-1,-0.5,0,0.5,1], tickfont=dict(size=9)),
+            xgap=2, ygap=2,
+        ))
+        # Semi-transparent grey overlay for insignificant cells
+        fig_pw.add_trace(go.Heatmap(
+            z=grey_z.tolist(), x=labels, y=labels,
+            colorscale=[[0,"rgba(180,180,180,0.45)"],[1,"rgba(180,180,180,0.45)"]],
+            zmin=0, zmax=1, showscale=False,
+            hovertemplate="<b>%{y}</b> vs <b>%{x}</b>: p > 0.05 (not significant)<extra></extra>",
             xgap=2, ygap=2,
         ))
         rollex_idx = labels.index("Rollex %Δ")
@@ -2631,6 +2664,66 @@ def render_analysis(d, report, color, commodity="KC"):
                        showgrid=False, showline=False, zeroline=False),
         )
         st.plotly_chart(fig_pw, width='stretch')
+        st.markdown(
+            "<p style='font-size:.7rem;color:#9ca3af;margin-top:-8px'>"
+            "Greyed cells: p > 0.05 (not statistically significant at 95% confidence)</p>",
+            unsafe_allow_html=True,
+        )
+
+        # ── Rollex Beta bar chart ─────────────────────────────────────────────
+        st.markdown(
+            "<div style='font-size:.88rem;font-weight:700;color:#374151;"
+            "margin:18px 0 4px;letter-spacing:.02em'>"
+            "ROLLEX β  ·  % move per 1k-lot weekly Δ</div>",
+            unsafe_allow_html=True,
+        )
+        _rx_col  = "Rollex %Δ"
+        _cot_cols = [l for l in labels if l != _rx_col]
+        betas, pvals_b, sig_b = [], [], []
+        for col in _cot_cols:
+            _v = pw_df[[col, _rx_col]].dropna()
+            if len(_v) >= 4:
+                slope, _ = np.polyfit(_v[col].values, _v[_rx_col].values, 1)
+                _, p_b   = scipy_stats.pearsonr(_v[col], _v[_rx_col])
+            else:
+                slope, p_b = np.nan, np.nan
+            betas.append(slope)
+            pvals_b.append(p_b)
+            sig_b.append(p_b <= 0.05 if pd.notna(p_b) else False)
+
+        bar_colors = [
+            ("#16a34a" if b > 0 else "#dc2626") if s else "#d1d5db"
+            for b, s in zip(betas, sig_b)
+        ]
+        beta_text = [
+            f"{b:+.4f}{'*' if s else ''}" if pd.notna(b) else "—"
+            for b, s in zip(betas, sig_b)
+        ]
+        fig_beta = go.Figure(go.Bar(
+            x=betas, y=_cot_cols,
+            orientation="h",
+            marker_color=bar_colors,
+            text=beta_text,
+            textposition="outside",
+            textfont=dict(size=9, color="#374151"),
+            hovertemplate="<b>%{y}</b><br>β = %{x:.5f}<br>% Rollex move per 1k lot Δ<extra></extra>",
+            cliponaxis=False,
+        ))
+        fig_beta.add_vline(x=0, line_color="#9ca3af", line_width=1)
+        fig_beta.update_layout(**_BASE,
+            height=max(260, 26 * len(_cot_cols) + 60),
+            margin=dict(l=140, r=80, t=20, b=20),
+            xaxis=dict(title="β  (Rollex %Δ per 1k lot)", tickfont=dict(size=9),
+                       showgrid=True, gridcolor="#f3f4f6", zeroline=False),
+            yaxis=dict(tickfont=dict(size=9), showgrid=False, autorange="reversed"),
+        )
+        st.plotly_chart(fig_beta, width='stretch')
+        st.markdown(
+            "<p style='font-size:.7rem;color:#9ca3af;margin-top:-8px'>"
+            "β = slope of Rollex %Δ ~ COT series (weekly Δ). "
+            "Coloured bars = significant (p ≤ 0.05). Grey = not significant. * marks significance.</p>",
+            unsafe_allow_html=True,
+        )
     else:
         st.info("Not enough overlapping data for pairwise correlation.")
 
