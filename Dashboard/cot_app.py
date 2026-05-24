@@ -3400,6 +3400,242 @@ def render_combined(commodity, start_date, end_date, color):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SPEC PROXIMITY TAB — all commodities at once, sequential date table
+# ══════════════════════════════════════════════════════════════════════════════
+def _spec_proximity_table(df_comm: pd.DataFrame, threshold_k: float) -> pd.DataFrame:
+    """For each row, walk backward and find the most recent prior date where
+    |Spec_now - Spec_prior| ≤ threshold. Returns the full table including
+    unmatched rows (blanks for Prev/Px2/Perf/Spec2)."""
+    df_comm = df_comm.sort_values("Date").reset_index(drop=True)
+    n   = len(df_comm)
+    dts = df_comm["Date"].values
+    sps = df_comm["Spec"].values
+    pxs = df_comm["Px"].values
+
+    rows = []
+    for i in range(n):
+        row = {
+            "Date 1": dts[i],
+            "Prev Date 2": pd.NaT,
+            "Weeks Between": np.nan,
+            "Px (Date 1)": pxs[i],
+            "Px2": np.nan,
+            "Performance %": np.nan,
+            "Spec 1": sps[i],
+            "Spec 2": np.nan,
+        }
+        for j in range(i - 1, -1, -1):
+            if pd.notna(sps[j]) and abs(sps[i] - sps[j]) <= threshold_k:
+                row["Prev Date 2"]   = dts[j]
+                row["Weeks Between"] = int((pd.Timestamp(dts[i]) - pd.Timestamp(dts[j])).days // 7)
+                row["Px2"]           = pxs[j]
+                row["Spec 2"]        = sps[j]
+                if pd.notna(pxs[i]) and pd.notna(pxs[j]) and pxs[j] != 0:
+                    row["Performance %"] = (pxs[i] / pxs[j] - 1) * 100
+                break
+        rows.append(row)
+
+    return pd.DataFrame(rows).sort_values("Date 1", ascending=False).reset_index(drop=True)
+
+
+@st.fragment
+def render_spec_proximity(start_date, end_date):
+    """Spec Proximity — finds historical analogs in net-spec positioning for every commodity."""
+    # ── Controls row ──────────────────────────────────────────────────────────
+    _c1, _c2, _ = st.columns([0.18, 0.18, 0.64])
+    with _c1:
+        threshold_k = st.number_input(
+            "Spec Proximity (k lots)",
+            min_value=0.1, max_value=200.0, value=2.0, step=0.5,
+            key="sp_threshold",
+            help="Match if |Spec_now − Spec_prior| ≤ this many k lots",
+        )
+    with _c2:
+        max_rows = st.number_input(
+            "Show last N weeks",
+            min_value=10, max_value=500, value=52, step=1,
+            key="sp_max_rows",
+        )
+
+    st.markdown(
+        "<p style='font-size:.72rem;color:#888;margin:0 0 14px'>"
+        "For each COT week, walks backward to find the <b>most recent prior date</b> where the net "
+        f"spec was within ±{threshold_k:.1f}k lots.  "
+        "<b>Net spec</b> = Large + Small + Index Net for US (KC / CC / SB / CT)  ·  "
+        "MM + Other + Non Rep Net for European (RC / LCC / LSU). "
+        "Performance = % move from the older date's Rollex to the current date's Rollex.</p>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Load both reports once ────────────────────────────────────────────────
+    cit_df = load_cit()
+    dag_df = load_disagg("F&O")
+
+    ALL_COMMS = ["KC", "CC", "SB", "CT", "RC", "LCC", "LSU"]
+
+    for comm in ALL_COMMS:
+        # Pick data source + spec formula
+        if comm in CIT_COMMS:
+            src = cit_df[(cit_df["Commodity"] == comm) &
+                         (cit_df["Date"] >= pd.Timestamp(start_date)) &
+                         (cit_df["Date"] <= pd.Timestamp(end_date))].copy()
+            if "Crop" in src.columns:
+                src = src[src["Crop"] == "All"]
+            for c in ("Spec Net", "Non Rep Net", "Index Net"):
+                if c not in src.columns: src[c] = 0
+            src["Spec"] = (src["Spec Net"] + src["Non Rep Net"] + src["Index Net"]) / 1000
+            spec_lbl = "Large + Small + Index Net  (CIT)"
+        else:
+            src = dag_df[(dag_df["Commodity"] == comm) &
+                         (dag_df["Date"] >= pd.Timestamp(start_date)) &
+                         (dag_df["Date"] <= pd.Timestamp(end_date))].copy()
+            if "Crop" in src.columns:
+                src = src[src["Crop"] == "All"]
+            for c in ("MM Net", "Other Net", "Non Rep Net"):
+                if c not in src.columns: src[c] = 0
+            src["Spec"] = (src["MM Net"] + src["Other Net"] + src["Non Rep Net"]) / 1000
+            spec_lbl = "MM + Other + Non Rep Net  (Disagg F&O)"
+
+        src = _inject_rollex(src.reset_index(drop=True), comm)
+        df_comm = src[["Date", "Spec", "Px"]].dropna(subset=["Spec"]).reset_index(drop=True)
+        if df_comm.empty:
+            continue
+
+        table_df = _spec_proximity_table(df_comm, threshold_k).head(int(max_rows))
+
+        color = COMM_COLORS.get(comm, "#444")
+        expanded = (comm == "KC")
+        with st.expander(f"{COMM_NAMES[comm]}   ·   {spec_lbl}", expanded=expanded):
+            # Build clean HTML table with semantic coloring
+            _max_abs_perf = max(
+                abs(table_df["Performance %"].dropna().max() or 0),
+                abs(table_df["Performance %"].dropna().min() or 0),
+                1.0,
+            )
+
+            def _cell_perf(v):
+                if pd.isna(v):
+                    return '<td style="padding:6px 12px;border-bottom:1px solid #eef0f4;color:#cbd5e1">—</td>'
+                bar_pct = min(abs(v) / _max_abs_perf * 100, 100)
+                if v > 0:
+                    bg, tc, bar = "#dcfce7", "#166534", "#86efac"
+                elif v < 0:
+                    bg, tc, bar = "#fee2e2", "#991b1b", "#fca5a5"
+                else:
+                    bg, tc, bar = "#f1f5f9", "#475569", "#cbd5e1"
+                return (
+                    f'<td style="padding:0;border-bottom:1px solid #eef0f4;background:{bg};'
+                    f'position:relative;min-width:90px">'
+                    f'<div style="position:absolute;left:0;top:0;bottom:0;width:{bar_pct}%;'
+                    f'background:{bar};opacity:.55"></div>'
+                    f'<div style="position:relative;padding:6px 12px;font-weight:700;color:{tc};'
+                    f'text-align:right">{v:+.2f}%</div>'
+                    f'</td>'
+                )
+
+            def _cell_date(v, primary=False):
+                if pd.isna(v):
+                    return '<td style="padding:6px 12px;border-bottom:1px solid #eef0f4;color:#cbd5e1">—</td>'
+                w = "700" if primary else "500"
+                c = "#0f172a" if primary else "#475569"
+                return (f'<td style="padding:6px 12px;border-bottom:1px solid #eef0f4;'
+                        f'font-weight:{w};color:{c};font-variant-numeric:tabular-nums">'
+                        f'{pd.Timestamp(v).strftime("%d %b %Y")}</td>')
+
+            def _cell_num(v, fmt="{:.2f}", color_hex="#1e293b", bold=False, faded_if_na=True):
+                if pd.isna(v):
+                    return ('<td style="padding:6px 12px;border-bottom:1px solid #eef0f4;'
+                            'color:#cbd5e1;text-align:right">—</td>')
+                w = "700" if bold else "500"
+                return (f'<td style="padding:6px 12px;border-bottom:1px solid #eef0f4;'
+                        f'color:{color_hex};font-weight:{w};text-align:right;'
+                        f'font-variant-numeric:tabular-nums">{fmt.format(v)}</td>')
+
+            def _cell_weeks(v):
+                if pd.isna(v):
+                    return '<td style="padding:6px 12px;border-bottom:1px solid #eef0f4;color:#cbd5e1;text-align:center">—</td>'
+                iv = int(v)
+                if iv <= 2:    pill_bg, pill_tc = "#dbeafe", "#1e40af"
+                elif iv <= 8:  pill_bg, pill_tc = "#fef3c7", "#92400e"
+                else:          pill_bg, pill_tc = "#fce7f3", "#9d174d"
+                return (f'<td style="padding:6px 12px;border-bottom:1px solid #eef0f4;text-align:center">'
+                        f'<span style="background:{pill_bg};color:{pill_tc};padding:2px 9px;'
+                        f'border-radius:10px;font-size:.72rem;font-weight:700">{iv}w</span></td>')
+
+            # Header row
+            ths = [
+                ("Date 1",        "left"),
+                ("Prev Date 2",   "left"),
+                ("Weeks",         "center"),
+                ("Px (Date 1)",   "right"),
+                ("Px (Date 2)",   "right"),
+                ("Performance",   "right"),
+                ("Spec 1",        "right"),
+                ("Spec 2",        "right"),
+            ]
+            head_html = "".join(
+                f'<th style="background:{color};color:white;font-weight:600;font-size:.72rem;'
+                f'padding:9px 12px;text-align:{ta};letter-spacing:.03em">{t.upper()}</th>'
+                for t, ta in ths
+            )
+
+            # Body rows
+            body_rows = []
+            for _, r in table_df.iterrows():
+                cells = (
+                    _cell_date(r["Date 1"], primary=True),
+                    _cell_date(r["Prev Date 2"]),
+                    _cell_weeks(r["Weeks Between"]),
+                    _cell_num(r["Px (Date 1)"], "{:.2f}", "#0f172a", bold=True),
+                    _cell_num(r["Px2"],         "{:.2f}", "#475569"),
+                    _cell_perf(r["Performance %"]),
+                    _cell_num(r["Spec 1"], "{:+.1f}", "#0c4a6e", bold=True),
+                    _cell_num(r["Spec 2"], "{:+.1f}", "#64748b"),
+                )
+                body_rows.append("<tr>" + "".join(cells) + "</tr>")
+
+            table_html = (
+                f'<div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;'
+                f'box-shadow:0 1px 3px rgba(0,0,0,.04)">'
+                f'<table style="width:100%;border-collapse:collapse;'
+                f'font-family:-apple-system,BlinkMacSystemFont,Helvetica Neue,sans-serif">'
+                f'<thead><tr>{head_html}</tr></thead>'
+                f'<tbody>{"".join(body_rows)}</tbody>'
+                f'</table></div>'
+            )
+            st.markdown(table_html, unsafe_allow_html=True)
+
+            # Quick stats summary bar
+            matched = table_df.dropna(subset=["Prev Date 2"])
+            if not matched.empty:
+                n_match  = len(matched)
+                n_total  = len(table_df)
+                avg_perf = matched["Performance %"].mean()
+                med_perf = matched["Performance %"].median()
+                pos_pct  = (matched["Performance %"] > 0).mean() * 100
+                avg_wks  = matched["Weeks Between"].mean()
+                _ap_clr  = "#166534" if avg_perf >= 0 else "#991b1b"
+                _mp_clr  = "#166534" if med_perf >= 0 else "#991b1b"
+                _stat = (
+                    f'<div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;'
+                    f'padding:10px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px">'
+                    f'<div><span style="font-size:.65rem;color:#94a3b8;letter-spacing:.05em">MATCH RATE</span>'
+                    f'<div style="font-size:.85rem;font-weight:700;color:#0f172a">{n_match} / {n_total}'
+                    f' <span style="font-size:.7rem;color:#64748b;font-weight:500">({n_match/n_total*100:.0f}%)</span></div></div>'
+                    f'<div><span style="font-size:.65rem;color:#94a3b8;letter-spacing:.05em">AVG PERF</span>'
+                    f'<div style="font-size:.85rem;font-weight:700;color:{_ap_clr}">{avg_perf:+.2f}%</div></div>'
+                    f'<div><span style="font-size:.65rem;color:#94a3b8;letter-spacing:.05em">MEDIAN PERF</span>'
+                    f'<div style="font-size:.85rem;font-weight:700;color:{_mp_clr}">{med_perf:+.2f}%</div></div>'
+                    f'<div><span style="font-size:.65rem;color:#94a3b8;letter-spacing:.05em">% POSITIVE</span>'
+                    f'<div style="font-size:.85rem;font-weight:700;color:#0f172a">{pos_pct:.0f}%</div></div>'
+                    f'<div><span style="font-size:.65rem;color:#94a3b8;letter-spacing:.05em">AVG WEEKS BACK</span>'
+                    f'<div style="font-size:.85rem;font-weight:700;color:#0f172a">{avg_wks:.1f}w</div></div>'
+                    f'</div>'
+                )
+                st.markdown(_stat, unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
@@ -4781,7 +5017,7 @@ tabs = st.tabs([
     "Recap", "Recap (Charts)", "Spec", "Commercial",
     "Concentration", "Spreading", "Old / New",
     "Correlation", "Spec Prediction", "Specs in VaR", "CIT vs Disagg",
-    "Pain Trade Monitor",
+    "Pain Trade Monitor", "Spec Proximity",
 ])
 
 with tabs[0]:  _tab_recap(df, report, color, commodity, is_options)
@@ -4820,6 +5056,7 @@ with tabs[10]:  # CIT vs Disagg
         _na("CIT vs Disagg comparison is only available for KC, CC, SB, and CT with a non-Options report.")
 
 with tabs[11]: _tab_pain_trade(df, commodity, report, color, is_options)
+with tabs[12]: render_spec_proximity(start_date, end_date)
 
 # Pairs tab hidden — re-enable by adding "Pairs" to st.tabs() and wiring:
 # with tabs[11]:
