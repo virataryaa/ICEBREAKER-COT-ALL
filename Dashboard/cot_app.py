@@ -2670,58 +2670,74 @@ def render_analysis(d, report, color, commodity="KC"):
             unsafe_allow_html=True,
         )
 
-        # ── Rollex Beta bar chart ─────────────────────────────────────────────
+        # ── Correlation vs Rollex  |  Beta vs Rollex  (side by side) ────────────
         st.markdown(
             "<div style='font-size:.88rem;font-weight:700;color:#374151;"
-            "margin:18px 0 4px;letter-spacing:.02em'>"
-            "ROLLEX β  ·  % move per 1k-lot weekly Δ</div>",
+            "margin:18px 0 6px;letter-spacing:.02em'>"
+            "vs ROLLEX  ·  Correlation (r) &nbsp;&&nbsp; Beta (β)  ·  weekly Δ</div>",
             unsafe_allow_html=True,
         )
-        _rx_col  = "Rollex %Δ"
+        _rx_col   = "Rollex %Δ"
         _cot_cols = [l for l in labels if l != _rx_col]
-        betas, pvals_b, sig_b = [], [], []
+        _rx_idx   = labels.index(_rx_col)
+
+        corrs, betas, pvals_rb, sig_rb = [], [], [], []
         for col in _cot_cols:
             _v = pw_df[[col, _rx_col]].dropna()
             if len(_v) >= 4:
-                slope, _ = np.polyfit(_v[col].values, _v[_rx_col].values, 1)
-                _, p_b   = scipy_stats.pearsonr(_v[col], _v[_rx_col])
+                col_idx      = labels.index(col)
+                r_val        = pw_arr[col_idx][_rx_idx]
+                slope, _     = np.polyfit(_v[col].values, _v[_rx_col].values, 1)
+                _, p_rb      = scipy_stats.pearsonr(_v[col], _v[_rx_col])
             else:
-                slope, p_b = np.nan, np.nan
+                r_val, slope, p_rb = np.nan, np.nan, np.nan
+            corrs.append(r_val)
             betas.append(slope)
-            pvals_b.append(p_b)
-            sig_b.append(p_b <= 0.05 if pd.notna(p_b) else False)
+            pvals_rb.append(p_rb)
+            sig_rb.append(p_rb <= 0.05 if pd.notna(p_rb) else False)
 
-        bar_colors = [
-            ("#16a34a" if b > 0 else "#dc2626") if s else "#d1d5db"
-            for b, s in zip(betas, sig_b)
-        ]
-        beta_text = [
-            f"{b:+.4f}{'*' if s else ''}" if pd.notna(b) else "—"
-            for b, s in zip(betas, sig_b)
-        ]
-        fig_beta = go.Figure(go.Bar(
-            x=betas, y=_cot_cols,
-            orientation="h",
-            marker_color=bar_colors,
-            text=beta_text,
-            textposition="outside",
-            textfont=dict(size=9, color="#374151"),
-            hovertemplate="<b>%{y}</b><br>β = %{x:.5f}<br>% Rollex move per 1k lot Δ<extra></extra>",
-            cliponaxis=False,
-        ))
-        fig_beta.add_vline(x=0, line_color="#9ca3af", line_width=1)
-        fig_beta.update_layout(**_BASE,
-            height=max(260, 26 * len(_cot_cols) + 60),
-            margin=dict(l=140, r=80, t=20, b=20),
-            xaxis=dict(title="β  (Rollex %Δ per 1k lot)", tickfont=dict(size=9),
-                       showgrid=True, gridcolor="#f3f4f6", zeroline=False),
-            yaxis=dict(tickfont=dict(size=9), showgrid=False, autorange="reversed"),
-        )
-        st.plotly_chart(fig_beta, width='stretch')
+        def _bar_colors(vals, sigs):
+            return [("#16a34a" if v > 0 else "#dc2626") if s else "#d1d5db"
+                    for v, s in zip(vals, sigs)]
+
+        def _bar_text(vals, sigs, fmt):
+            return [f"{v:{fmt}}{'*' if s else ''}" if pd.notna(v) else "—"
+                    for v, s in zip(vals, sigs)]
+
+        def _bar_chart(vals, sigs, title_x, fmt, hover_sfx):
+            fig = go.Figure(go.Bar(
+                x=vals, y=_cot_cols, orientation="h",
+                marker_color=_bar_colors(vals, sigs),
+                text=_bar_text(vals, sigs, fmt),
+                textposition="outside", textfont=dict(size=9, color="#374151"),
+                hovertemplate=f"<b>%{{y}}</b><br>{title_x} = %{{x:.4f}}<br>{hover_sfx}<extra></extra>",
+                cliponaxis=False,
+            ))
+            fig.add_vline(x=0, line_color="#9ca3af", line_width=1)
+            fig.update_layout(**_BASE,
+                height=max(280, 26 * len(_cot_cols) + 70),
+                margin=dict(l=130, r=70, t=28, b=36),
+                xaxis=dict(title=title_x, tickfont=dict(size=9),
+                           showgrid=True, gridcolor="#f3f4f6", zeroline=False),
+                yaxis=dict(tickfont=dict(size=9), showgrid=False, autorange="reversed"),
+            )
+            return fig
+
+        _col_r, _col_b = st.columns(2)
+        with _col_r:
+            st.plotly_chart(
+                _bar_chart(corrs, sig_rb, "r  (Pearson)", "+.2f", "Correlation with Rollex %Δ"),
+                width='stretch',
+            )
+        with _col_b:
+            st.plotly_chart(
+                _bar_chart(betas, sig_rb, "β  (Rollex %Δ per 1k lot)", "+.4f",
+                           "% Rollex move per 1k lot weekly Δ"),
+                width='stretch',
+            )
         st.markdown(
-            "<p style='font-size:.7rem;color:#9ca3af;margin-top:-8px'>"
-            "β = slope of Rollex %Δ ~ COT series (weekly Δ). "
-            "Coloured bars = significant (p ≤ 0.05). Grey = not significant. * marks significance.</p>",
+            "<p style='font-size:.7rem;color:#9ca3af;margin-top:-10px'>"
+            "Coloured bars = significant (p ≤ 0.05) · Grey = noisy/not significant · * marks significance</p>",
             unsafe_allow_html=True,
         )
     else:
