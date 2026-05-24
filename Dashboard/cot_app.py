@@ -43,6 +43,13 @@ st.markdown("""
   div[data-testid="stTabs"] button:nth-child(12) p {
     color:#be185d !important; font-weight:600 !important;
   }
+  div[data-testid="stTabs"] button:nth-child(13) {
+    background-color:#ede9fe !important;
+    border-radius:6px 6px 0 0 !important;
+  }
+  div[data-testid="stTabs"] button:nth-child(13) p {
+    color:#6d28d9 !important; font-weight:600 !important;
+  }
   hr { border:none !important; border-top:1px solid #e8e8ed !important; margin:.5rem 0 !important; }
   [data-testid="stRadio"] label { font-size:.82rem !important; }
 </style>""", unsafe_allow_html=True)
@@ -3536,12 +3543,13 @@ def _render_one_proximity_table(comm, study_weeks, cit_df, dag_df, start_date, e
                 f'<span style="background:{pill_bg};color:{pill_tc};padding:1px 6px;'
                 f'border-radius:8px;font-size:.62rem;font-weight:700">{iv}w</span></td>')
 
-    # Header
-    ths = [("Date", "left"), ("Prev", "left"), ("Wks", "center"),
-           ("Px1", "right"), ("Px2", "right"), ("Perf", "right"),
-           ("Sp1", "right"), ("Sp2", "right")]
+    # Header — unified dark navy for all commodities
+    _HEAD_BG = "#1e3a8a"
+    ths = [("Date",       "left"),   ("Prev",       "left"),   ("Wks",         "center"),
+           ("Px (New)",   "right"),  ("Px (Old)",   "right"),  ("Perf",        "right"),
+           ("Spec (New)", "right"),  ("Spec (Old)", "right")]
     head_html = "".join(
-        f'<th style="background:{color};color:white;font-weight:600;font-size:.62rem;'
+        f'<th style="background:{_HEAD_BG};color:white;font-weight:600;font-size:.62rem;'
         f'padding:5px 6px;text-align:{ta};letter-spacing:.04em">{t.upper()}</th>'
         for t, ta in ths
     )
