@@ -4425,8 +4425,8 @@ def render_pain_trade(d, commodity, report, color, is_options):
 
     # ── Rollex bucket table ───────────────────────────────────────────────────
     with st.expander("Positioning by Rollex Level", expanded=False):
-        # Compact controls row: Step | Weeks | (spacer)
-        _c_step, _c_wks, _c_pad = st.columns([0.15, 0.15, 0.70])
+        # Compact controls row: Step | Weeks | Threshold Rollex radio
+        _c_step, _c_wks, _c_radio = st.columns([0.12, 0.12, 0.76])
         with _c_wks:
             n_weeks = st.number_input("Weeks", min_value=1, max_value=500, value=13,
                                        step=1, key=f"pt_tbl_wks_{commodity}_{report}")
@@ -4446,13 +4446,14 @@ def render_pain_trade(d, commodity, report, color, is_options):
         _opt_cot    = "Latest COT"
         _opt_rx     = "Latest Rollex"
         _opt_custom = "Custom"
-        _rx_mode = st.radio(
-            "Threshold Rollex",
-            [_opt_cot, _opt_rx, _opt_custom],
-            index=0, horizontal=True,
-            key=f"pt_rx_mode_{commodity}_{report}",
-            help="Rollex level used to split bins into Above / Below in the table below.",
-        )
+        with _c_radio:
+            _rx_mode = st.radio(
+                "Threshold Rollex",
+                [_opt_cot, _opt_rx, _opt_custom],
+                index=0, horizontal=True,
+                key=f"pt_rx_mode_{commodity}_{report}",
+                help="Rollex level used to split bins into Above / Below in the table below.",
+            )
         _cot_px_str = f"{window_px:.2f}" if pd.notna(window_px) else "—"
         _rx_px_str  = f"{px_latest_rx:.2f}" if pd.notna(px_latest_rx) else "—"
         _cot_month  = f" · {window_active_lbl}" if window_active_lbl else ""
