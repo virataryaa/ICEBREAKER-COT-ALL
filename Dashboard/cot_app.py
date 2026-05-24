@@ -3580,8 +3580,8 @@ def _render_one_proximity_table(comm, study_weeks, cit_df, dag_df, start_date, e
     )
     st.markdown(table_html, unsafe_allow_html=True)
 
-    # ── Dynamic Spec Proximity (vs latest) ───────────────────────────────────
-    _render_dynamic_proximity(comm, df_comm)
+    # ── Dynamic Spec Proximity (vs latest) — uses same study window ──────────
+    _render_dynamic_proximity(comm, df_window)
 
 
 def _render_dynamic_proximity(comm, df_comm):
