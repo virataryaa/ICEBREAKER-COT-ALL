@@ -4192,9 +4192,17 @@ def render_pain_trade(d, commodity, report, color, is_options):
             "MM Long", "MM Short", "Other Long", "Other Short", "Other Rep."
 
     # Daily Rollex for the post-COT dotted extension
-    rx_daily = load_rollex(commodity).rename(columns={"rollex_px": "Rollex"})
-    rx_daily = rx_daily[["Date", "Rollex"]].dropna(subset=["Rollex"]) if not rx_daily.empty else \
-               pd.DataFrame(columns=["Date", "Rollex"])
+    _rx_raw  = load_rollex(commodity).rename(columns={"rollex_px": "Rollex"})
+    rx_daily = (
+        _rx_raw[["Date", "Rollex"]].dropna(subset=["Rollex"])
+        if not _rx_raw.empty else pd.DataFrame(columns=["Date", "Rollex"])
+    )
+    # Full version with active_label for the threshold-selector display
+    _rx_labelled = (
+        _rx_raw[["Date", "Rollex", "active_label"]].dropna(subset=["Rollex"])
+        if not _rx_raw.empty and "active_label" in _rx_raw.columns
+        else pd.DataFrame()
+    )
 
     # Controls
     _radio_key = f"pt_radio_{commodity}_{report}"
@@ -4265,18 +4273,24 @@ def render_pain_trade(d, commodity, report, color, is_options):
 
     _rx_upto    = rx_daily[rx_daily["Date"] <= last_cot_date] if not rx_daily.empty else pd.DataFrame()
     if not _rx_upto.empty:
-        window_px, window_date = float(_rx_upto["Rollex"].iloc[-1]), _rx_upto["Date"].iloc[-1].strftime("%d/%m/%Y")
+        window_px   = float(_rx_upto["Rollex"].iloc[-1])
+        window_date = _rx_upto["Date"].iloc[-1].strftime("%d/%m/%Y")
+        _lbl_upto   = _rx_labelled[_rx_labelled["Date"] <= last_cot_date] if not _rx_labelled.empty else pd.DataFrame()
+        window_active_lbl = str(_lbl_upto["active_label"].iloc[-1]) if not _lbl_upto.empty else ""
     else:
         _cot_rx = dff.dropna(subset=["Rollex"])
         window_px   = float(_cot_rx["Rollex"].iloc[-1]) if not _cot_rx.empty else np.nan
         window_date = _cot_rx["Date"].iloc[-1].strftime("%d/%m/%Y") if not _cot_rx.empty else "—"
+        window_active_lbl = ""
 
     # Latest Rollex — most recent daily value (may be ahead of latest COT date)
     if not rx_daily.empty:
-        px_latest_rx   = float(rx_daily["Rollex"].iloc[-1])
-        date_latest_rx = rx_daily["Date"].iloc[-1].strftime("%d/%m/%Y")
+        px_latest_rx         = float(rx_daily["Rollex"].iloc[-1])
+        date_latest_rx       = rx_daily["Date"].iloc[-1].strftime("%d/%m/%Y")
+        latest_rx_active_lbl = str(_rx_labelled["active_label"].iloc[-1]) if not _rx_labelled.empty else ""
     else:
         px_latest_rx, date_latest_rx = window_px, window_date
+        latest_rx_active_lbl = window_active_lbl
 
     # ── VISUAL 1 — Spec legs bars + Rollex ───────────────────────────────────
     st.markdown(
@@ -4424,16 +4438,21 @@ def render_pain_trade(d, commodity, report, color, is_options):
                                        key=f"pt_rx_step_{commodity}_{report}")
 
         # ── Threshold Rollex selector (determines Above / Below split) ────────
+        _cot_suffix = f"  {window_date}" + (f"  ·  {window_active_lbl}" if window_active_lbl else "")
+        _rx_suffix  = f"  {date_latest_rx}" + (f"  ·  {latest_rx_active_lbl}" if latest_rx_active_lbl else "")
+        _opt_cot    = f"Latest COT{_cot_suffix}"
+        _opt_rx     = f"Latest Rollex{_rx_suffix}"
+        _opt_custom = "Custom"
         _rx_mode = st.radio(
             "Threshold Rollex",
-            ["Latest COT", "Latest Rollex", "Custom"],
+            [_opt_cot, _opt_rx, _opt_custom],
             index=0, horizontal=True,
             key=f"pt_rx_mode_{commodity}_{report}",
             help="Rollex level used to split bins into Above / Below in the table below.",
         )
-        if _rx_mode == "Latest COT":
+        if _rx_mode == _opt_cot:
             tbl_window_px, tbl_window_date = window_px, window_date
-        elif _rx_mode == "Latest Rollex":
+        elif _rx_mode == _opt_rx:
             tbl_window_px, tbl_window_date = px_latest_rx, date_latest_rx
         else:
             tbl_window_px = st.number_input(
