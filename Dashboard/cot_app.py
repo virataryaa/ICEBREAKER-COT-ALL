@@ -2371,38 +2371,15 @@ def render_analysis(d, report, color, commodity="KC"):
     metric_keys  = list(metrics.keys())
     default_idx  = metric_keys.index(_reg_default) if _reg_default in metric_keys else 0
 
-    col_m, col_w = st.columns([1, 1])
-    with col_m:
-        sel = st.selectbox("Metric", metric_keys, index=default_idx, key="anal_col_v2",
-                           help="COT element for regression & implied positioning")
-    with col_w:
-        lookback = st.select_slider(
-            "Look-back Period",
-            options=["1Y", "2Y", "3Y", "5Y", "All"],
-            value="All",
-            key="reg_lookback",
-            help="Governs all charts, regression fitting, and the pairwise correlation matrix on this tab",
-        )
-    st.markdown(
-        "<p style='font-size:.68rem;color:#94a3b8;margin:-4px 0 14px'>"
-        "ⓘ Look-back period governs all charts and the pairwise correlation matrix on this tab.</p>",
-        unsafe_allow_html=True)
+    sel = st.selectbox("Metric", metric_keys, index=default_idx, key="anal_col_v2",
+                       help="COT element for regression & implied positioning")
 
-    n_weeks = {"1Y": 52, "2Y": 104, "3Y": 156, "5Y": 260}.get(lookback, None)
-
-    # Save full-series values for regression KPI strip and bar chart (before windowing)
+    # Date range governed by sidebar — no separate lookback
     _d_last_date = d.iloc[-1]["Date"]
     _d_dates     = d["Date"].values
     _px_full     = px.reset_index(drop=True)
     _px_chg_full = px_chg.reset_index(drop=True)
     _sel_full    = metrics[sel].reset_index(drop=True)
-
-    # Apply lookback — all downstream sections use windowed d / metrics / px / px_chg
-    if n_weeks is not None:
-        d       = d.iloc[-n_weeks:].copy()
-        metrics = {k: v.iloc[-n_weeks:] for k, v in metrics.items()}
-        px      = px.iloc[-n_weeks:]
-        px_chg  = px_chg.iloc[-n_weeks:]
 
     # ── Section 1: COT Elements Prediction ───────────────────────────────────
     st.markdown("<div style='font-size:.88rem;font-weight:700;color:#374151;"
@@ -2417,8 +2394,17 @@ def render_analysis(d, report, color, commodity="KC"):
     x_hist = px_chg_r_win[common].values.astype(float)
     y_hist = ds_r[common].values.astype(float)
 
+    # Strip CFTC data-entry errors (e.g. Non Rep Long = 2.7B lots on LCC)
+    # Keep rows within 3 IQR of the median on the COT series
+    if len(y_hist) >= 10:
+        _iqr = np.percentile(y_hist, 75) - np.percentile(y_hist, 25)
+        _med = np.median(y_hist)
+        _clip = max(_iqr * 5, 1)
+        _ok  = np.abs(y_hist - _med) <= _clip
+        x_hist, y_hist = x_hist[_ok], y_hist[_ok]
+
     if len(x_hist) < 10:
-        st.info(f"Not enough data for regression ({len(x_hist)} obs — need ≥ 10). Widen the look-back period.")
+        st.info(f"Not enough data for regression ({len(x_hist)} obs — need ≥ 10).")
     else:
         beta, alpha = np.polyfit(x_hist, y_hist, 1)
         y_hat  = beta * x_hist + alpha
@@ -2482,7 +2468,7 @@ def render_analysis(d, report, color, commodity="KC"):
             f"</tr></table>",
             unsafe_allow_html=True)
 
-        win_label = f"  ·  {lookback}" if lookback != "All" else ""
+        win_label = ""
         dates_win    = pd.to_datetime(d["Date"].reset_index(drop=True))
         dates_common = dates_win[common]
         latest_pt_lbl = dates_common.iloc[-1].strftime("%d %b %Y")
