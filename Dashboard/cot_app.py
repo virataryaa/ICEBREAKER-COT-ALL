@@ -2714,15 +2714,14 @@ def render_analysis(d, report, color, commodity="KC"):
             return [("#16a34a" if v > 0 else "#dc2626") if s else "#d1d5db"
                     for v, s in zip(vals, sigs)]
 
-        def _bar_text(vals, sigs, fmt):
-            return [f"{v:{fmt}}{'*' if s else ''}" if pd.notna(v) else "—"
-                    for v, s in zip(vals, sigs)]
+        def _bar_text(vals, fmt):
+            return [f"{v:{fmt}}" if pd.notna(v) else "—" for v in vals]
 
         def _bar_chart(vals, sigs, title_x, fmt, hover_sfx, mode="signed"):
             fig = go.Figure(go.Bar(
                 x=vals, y=_cot_cols, orientation="h",
                 marker_color=_bar_colors(vals, sigs, mode),
-                text=_bar_text(vals, sigs, fmt),
+                text=_bar_text(vals, fmt),
                 textposition="outside", textfont=dict(size=9, color="#374151"),
                 hovertemplate=f"<b>%{{y}}</b><br>{title_x} = %{{x:.4f}}<br>{hover_sfx}<extra></extra>",
                 cliponaxis=False,
@@ -2741,7 +2740,7 @@ def render_analysis(d, report, color, commodity="KC"):
         _col_r2, _col_r, _col_b = st.columns(3)
         with _col_r2:
             st.plotly_chart(
-                _bar_chart(rsqs, sig_rb, "R²", ".3f", "Variance explained vs Rollex %Δ",
+                _bar_chart(rsqs, sig_rb, "R²", ".2f", "Variance explained vs Rollex %Δ",
                            mode="unsigned"),
                 width='stretch',
             )
@@ -2752,13 +2751,13 @@ def render_analysis(d, report, color, commodity="KC"):
             )
         with _col_b:
             st.plotly_chart(
-                _bar_chart(betas, sig_rb, "β  (Rollex %Δ per 1k lot)", "+.4f",
+                _bar_chart(betas, sig_rb, "β  (Rollex %Δ per 1k lot)", "+.2f",
                            "% Rollex move per 1k lot weekly Δ"),
                 width='stretch',
             )
         st.markdown(
             "<p style='font-size:.7rem;color:#9ca3af;margin-top:-10px'>"
-            "Coloured bars = significant (p ≤ 0.05) · Grey = noisy/not significant · * marks significance</p>",
+            "Coloured bars = significant (p ≤ 0.05) · Grey = noisy / not significant</p>",
             unsafe_allow_html=True,
         )
     else:
