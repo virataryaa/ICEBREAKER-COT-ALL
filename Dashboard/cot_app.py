@@ -239,7 +239,11 @@ def load_rollex(commodity: str) -> pd.DataFrame:
     path = ROLLEX_DIR / fname
     if not path.exists():
         return pd.DataFrame(columns=["Date","rollex_px","rollex_ret"])
-    df = pd.read_parquet(path, columns=["rollex_px","rollex_ret"])
+    _base = ["rollex_px", "rollex_ret"]
+    try:
+        df = pd.read_parquet(path, columns=_base + ["active_label"])
+    except Exception:
+        df = pd.read_parquet(path, columns=_base)
     df.index = pd.to_datetime(df.index)
     df.index.name = "Date"
     df = df.reset_index()   # index named "Date" → column "Date"
