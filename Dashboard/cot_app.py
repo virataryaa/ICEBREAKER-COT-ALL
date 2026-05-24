@@ -3580,6 +3580,135 @@ def _render_one_proximity_table(comm, study_weeks, cit_df, dag_df, start_date, e
     )
     st.markdown(table_html, unsafe_allow_html=True)
 
+    # ── Dynamic Spec Proximity (vs latest) ───────────────────────────────────
+    _render_dynamic_proximity(comm, df_comm)
+
+
+def _render_dynamic_proximity(comm, df_comm):
+    """Collapsible per-commodity section: pin latest spec, list all historical
+    dates within ±X k lots of it, and compute return-from-then-to-now."""
+    if df_comm.empty:
+        return
+
+    df_full = df_comm.sort_values("Date").reset_index(drop=True)
+    latest      = df_full.iloc[-1]
+    latest_spec = float(latest["Spec"])
+    latest_date = pd.Timestamp(latest["Date"])
+    latest_px   = float(latest["Px"]) if pd.notna(latest["Px"]) else None
+
+    with st.expander("Dynamic Spec Proximity  ·  vs latest spec", expanded=False):
+        # KPI strip
+        _px_str = f"{latest_px:.2f}" if latest_px is not None else "—"
+        st.markdown(
+            f"<div style='display:flex;gap:6px;margin:2px 0 8px'>"
+            f"<div style='flex:1;padding:5px 8px;background:#f1f5f9;border-radius:4px'>"
+            f"<div style='font-size:.55rem;color:#94a3b8;letter-spacing:.05em'>LATEST SPEC</div>"
+            f"<div style='font-size:.78rem;font-weight:700;color:#0c4a6e'>{latest_spec:+.1f}k</div></div>"
+            f"<div style='flex:1;padding:5px 8px;background:#f1f5f9;border-radius:4px'>"
+            f"<div style='font-size:.55rem;color:#94a3b8;letter-spacing:.05em'>LATEST DATE</div>"
+            f"<div style='font-size:.78rem;font-weight:700;color:#0f172a'>{latest_date.strftime('%d/%m/%y')}</div></div>"
+            f"<div style='flex:1;padding:5px 8px;background:#f1f5f9;border-radius:4px'>"
+            f"<div style='font-size:.55rem;color:#94a3b8;letter-spacing:.05em'>LATEST PX</div>"
+            f"<div style='font-size:.78rem;font-weight:700;color:#1e3a8a'>{_px_str}</div></div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+        dyn_thresh = st.number_input(
+            f"Proximity around {latest_spec:+.1f}k  (±k lots)",
+            min_value=0.1, max_value=500.0, value=10.0, step=1.0,
+            key=f"sp_dyn_thr_{comm}",
+        )
+
+        # All historical matches within sidebar date range
+        m = df_full[abs(df_full["Spec"] - latest_spec) <= dyn_thresh].copy()
+        m = m.sort_values("Date", ascending=False).reset_index(drop=True)
+        if m.empty:
+            st.markdown(
+                f"<p style='font-size:.7rem;color:#999;margin-top:6px'>"
+                f"No matches within ±{dyn_thresh:.1f}k of latest spec.</p>",
+                unsafe_allow_html=True,
+            )
+            return
+
+        # Build cells
+        if latest_px is None or latest_px == 0:
+            m["Perf"] = np.nan
+        else:
+            m["Perf"] = (latest_px / m["Px"] - 1) * 100
+        m["Days"] = (latest_date - pd.to_datetime(m["Date"])).dt.days
+
+        _max_abs_perf = max(
+            abs(m["Perf"].dropna().max() or 0),
+            abs(m["Perf"].dropna().min() or 0),
+            1.0,
+        )
+
+        def _c_perf(v):
+            if pd.isna(v):
+                return '<td style="padding:3px 6px;border-bottom:1px solid #eef0f4;color:#cbd5e1;text-align:right;font-size:.66rem">—</td>'
+            bar_pct = min(abs(v) / _max_abs_perf * 100, 100)
+            if v > 0:   bg, tc, bar = "#dcfce7", "#166534", "#86efac"
+            elif v < 0: bg, tc, bar = "#fee2e2", "#991b1b", "#fca5a5"
+            else:       bg, tc, bar = "#f1f5f9", "#475569", "#cbd5e1"
+            return (f'<td style="padding:0;border-bottom:1px solid #eef0f4;background:{bg};position:relative">'
+                    f'<div style="position:absolute;left:0;top:0;bottom:0;width:{bar_pct}%;background:{bar};opacity:.55"></div>'
+                    f'<div style="position:relative;padding:3px 6px;font-weight:700;color:{tc};text-align:right;font-size:.66rem">{v:+.1f}%</div>'
+                    f'</td>')
+
+        def _c_date(v, primary=False):
+            w = "700" if primary else "500"
+            c = "#0f172a" if primary else "#475569"
+            return (f'<td style="padding:3px 6px;border-bottom:1px solid #eef0f4;'
+                    f'font-weight:{w};color:{c};font-variant-numeric:tabular-nums;font-size:.66rem">'
+                    f'{pd.Timestamp(v).strftime("%d/%m/%y")}</td>')
+
+        def _c_num(v, fmt="{:.1f}", color_hex="#334155", bold=False, align="right"):
+            if pd.isna(v):
+                return f'<td style="padding:3px 6px;border-bottom:1px solid #eef0f4;color:#cbd5e1;text-align:{align};font-size:.66rem">—</td>'
+            w = "700" if bold else "500"
+            return (f'<td style="padding:3px 6px;border-bottom:1px solid #eef0f4;'
+                    f'color:{color_hex};font-weight:{w};text-align:{align};'
+                    f'font-variant-numeric:tabular-nums;font-size:.66rem">{fmt.format(v)}</td>')
+
+        _HEAD_BG = "#1e3a8a"
+        ths = [("Date","left"), ("Spec","right"), ("Rollex","right"),
+               ("Perf","right"), ("Days","right")]
+        head_html = "".join(
+            f'<th style="background:{_HEAD_BG};color:white;font-weight:600;font-size:.62rem;'
+            f'padding:5px 6px;text-align:{ta};letter-spacing:.04em">{t.upper()}</th>'
+            for t, ta in ths
+        )
+
+        body_rows = []
+        for _, r in m.iterrows():
+            is_latest = (pd.Timestamp(r["Date"]) == latest_date)
+            cells = (
+                _c_date(r["Date"], primary=True),
+                _c_num(r["Spec"], "{:+.1f}", "#0c4a6e", bold=True),
+                _c_num(r["Px"],   "{:.2f}",  "#1e3a8a", bold=is_latest),
+                _c_perf(r["Perf"]),
+                _c_num(r["Days"], "{:.0f}",  "#64748b"),
+            )
+            body_rows.append("<tr>" + "".join(cells) + "</tr>")
+
+        table_html = (
+            f'<div style="border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;'
+            f'box-shadow:0 1px 2px rgba(0,0,0,.04);margin-top:4px">'
+            f'<table style="width:100%;border-collapse:collapse;'
+            f'font-family:-apple-system,BlinkMacSystemFont,Helvetica Neue,sans-serif">'
+            f'<thead><tr>{head_html}</tr></thead>'
+            f'<tbody>{"".join(body_rows)}</tbody>'
+            f'</table></div>'
+        )
+        st.markdown(table_html, unsafe_allow_html=True)
+        st.markdown(
+            f"<p style='font-size:.62rem;color:#94a3b8;margin-top:4px'>"
+            f"{len(m)} matches within ±{dyn_thresh:.1f}k  ·  "
+            f"Perf = % move from that date's Rollex to latest ({_px_str})</p>",
+            unsafe_allow_html=True,
+        )
+
 
 @st.fragment
 def render_spec_proximity(start_date, end_date):
