@@ -4438,10 +4438,8 @@ def render_pain_trade(d, commodity, report, color, is_options):
                                        key=f"pt_rx_step_{commodity}_{report}")
 
         # ── Threshold Rollex selector (determines Above / Below split) ────────
-        _cot_suffix = f"  {window_date}" + (f"  ·  {window_active_lbl}" if window_active_lbl else "")
-        _rx_suffix  = f"  {date_latest_rx}" + (f"  ·  {latest_rx_active_lbl}" if latest_rx_active_lbl else "")
-        _opt_cot    = f"Latest COT{_cot_suffix}"
-        _opt_rx     = f"Latest Rollex{_rx_suffix}"
+        _opt_cot    = "Latest COT"
+        _opt_rx     = "Latest Rollex"
         _opt_custom = "Custom"
         _rx_mode = st.radio(
             "Threshold Rollex",
