@@ -4796,12 +4796,35 @@ def render_pain_trade(d, commodity, report, color, is_options):
                                       mode="lines",
                                       line=dict(color=_PT_AMBER, width=2, dash="dot")),
                            secondary_y=True)
+            # Endpoint marker + label for the latest post-COT Rollex value
+            _last_pt = rx_ext.iloc[-1]
+            fig1.add_trace(go.Scatter(
+                x=[_last_pt["Date"]], y=[_last_pt["Rollex"]],
+                mode="markers+text",
+                marker=dict(color=_PT_AMBER, size=11, symbol="diamond",
+                            line=dict(color=_PT_BLACK, width=1)),
+                text=[f"  {_last_pt['Rollex']:.1f}"],
+                textposition="middle right",
+                textfont=dict(size=10, color=_PT_AMBER,
+                              family="-apple-system,Helvetica Neue,sans-serif"),
+                showlegend=False,
+                hovertemplate=f"Latest Rollex %{{y:.2f}}<br>{latest_rx_str}<extra></extra>",
+            ), secondary_y=True)
+
+    # X-axis padding: extend ~5 days past the latest Rollex date so the
+    # post-COT dotted segment + endpoint marker sit clear of the last bar.
+    _x_left  = dff["Date"].min() - pd.Timedelta(days=2)
+    _x_right_anchor = (
+        rx_daily["Date"].max() if not rx_daily.empty else dff["Date"].max()
+    )
+    _x_right = _x_right_anchor + pd.Timedelta(days=5)
 
     fig1.update_layout(
         barmode="relative", height=420,
         margin=dict(t=10, b=10, l=4, r=4),
         legend=dict(orientation="h", y=1.06, x=0, font=dict(size=9)),
-        xaxis=dict(showgrid=False, tickfont=dict(size=9)),
+        xaxis=dict(showgrid=False, tickfont=dict(size=9),
+                   range=[_x_left, _x_right]),
         template="plotly_white",
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         font=dict(family="-apple-system,Helvetica Neue,sans-serif", color=_PT_BLACK, size=10),
