@@ -1682,7 +1682,7 @@ _RECAP_COL_SUBSEP = {
 }
 
 def _recap_html(df, signed=False, change_table=False, scroll=False, signed_groups=None,
-                pct_groups=None, pct_subcols=None, signed_rows=None, z_rows=None):
+                pct_groups=None, pct_subcols=None, signed_rows=None, z_rows=None, max_height=None):
     if df.empty: return ""
     cols = list(df.columns)
     # Build group spans
@@ -1760,7 +1760,12 @@ def _recap_html(df, signed=False, change_table=False, scroll=False, signed_group
             body += f'<td class="{full_cls}">{txt}</td>'
         body += '</tr>'
 
-    scroll_style = "overflow-x:auto;overflow-y:auto;max-height:420px;" if scroll else "overflow-x:auto;"
+    if max_height is not None:
+        scroll_style = f"overflow-x:auto;overflow-y:auto;max-height:{max_height}px;"
+    elif scroll:
+        scroll_style = "overflow-x:auto;overflow-y:auto;max-height:420px;"
+    else:
+        scroll_style = "overflow-x:auto;"
     return (f'{_RECAP_CSS}<div style="{scroll_style}margin-bottom:6px">'
             f'<table class="rtbl"><thead>{h1}{h2}</thead>'
             f'<tbody>{body}</tbody></table></div>')
@@ -2126,7 +2131,8 @@ def render_recap(d, report, color, commodity="KC", is_options=False):
         st.markdown(_recap_html(summary,
                                 signed_rows={"Δ 1w", "Δ 1m", "Z-Score"},
                                 z_rows={"Z-Score"},
-                                pct_subcols=_PX_PCT), unsafe_allow_html=True)
+                                pct_subcols=_PX_PCT,
+                                max_height=118), unsafe_allow_html=True)
 
     with st.expander("Historical positions  ·  k lots", expanded=True):
         st.markdown(_recap_html(view, scroll=True, pct_subcols=_PX_PCT), unsafe_allow_html=True)
@@ -3242,7 +3248,7 @@ def render_combined(commodity, start_date, end_date, color):
             columns=body_df.columns)
 
         with st.expander("Change summary  ·  k lots", expanded=True):
-            st.markdown(_recap_html(summary_df, signed_rows={"Δ 1w","Δ 1m","Z-Score"}, z_rows={"Z-Score"}), unsafe_allow_html=True)
+            st.markdown(_recap_html(summary_df, signed_rows={"Δ 1w","Δ 1m","Z-Score"}, z_rows={"Z-Score"}, max_height=118), unsafe_allow_html=True)
 
         with st.expander("Historical positions  ·  k lots", expanded=True):
             disp = body_df.iloc[:20].copy()
