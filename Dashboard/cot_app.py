@@ -1578,7 +1578,7 @@ _RECAP_GROUP_BG = {
     "NET":             "#bae6fd",
     "SPREAD":          "#fed7aa",
     "SP":              "#fed7aa",
-    "Spec ex Swap":    "#a7f3d0",
+    "MM+O+NR":         "#a7f3d0",
     "OI":              "#e5e7eb",
     "OI · k lots":     "#e5e7eb",
     "Δ 1w":            "#f9a8d4",
@@ -1614,6 +1614,8 @@ _RECAP_CSS = """
 .rtbl .sub{background:#f9fafb;font-size:.70rem;color:#555;font-weight:600;text-align:center}
 .rtbl tbody tr:hover td{background:#f0f9ff!important}
 .rpos{color:#16a34a}.rneg{color:#dc2626}
+.rtbl .gsep{border-left:2.5px solid #6b7280!important}
+.rtbl .gsub{border-left:1.5px solid #b8c0cc!important}
 .rtbl th.sub[data-tt]{position:relative;cursor:help}
 .rtbl th.sub[data-tt]::after{
   content:attr(data-tt);
@@ -1655,11 +1657,28 @@ _RECAP_CSS = """
 _COLUMN_TOOLTIPS = {
     ("NET", "Large+Small"):      "Large Spec Net + Non-Rep Net",
     ("NET", "Lrg+Sml+Idx"):     "Large Spec Net + Non-Rep Net + Index Net",
-    ("Spec ex Swap", "Long"):    "MM Long + Other Long + Non-Rep Long",
-    ("Spec ex Swap", "Short"):   "MM Short + Other Short + Non-Rep Short",
-    ("NET", "Rest"):             "Other Net + Non-Rep Net",
-    ("NET", "MM"):               "Managed Money Net",
-    ("NET", "Comm"):             "Producer/Commercial Net",
+    ("MM+O+NR", "Long"):              "MM Long + Other Long + Non-Rep Long",
+    ("MM+O+NR", "Short"):             "MM Short + Other Short + Non-Rep Short",
+    ("NET", "MM+O+NR"):               "MM Net + Other Net + Non-Rep Net",
+    ("NET", "Rest"):                  "Other Net + Non-Rep Net",
+    ("NET", "MM"):                    "Managed Money Net",
+    ("NET", "Comm"):                  "Producer/Commercial Net",
+    ("Gross Positions", "L+S Long"):  "Large Long + Small Long (Spec + Non-Rep)",
+    ("Gross Positions", "L+S Short"): "Large Short + Small Short (Spec + Non-Rep)",
+    ("Gross Positions", "L+S+I Long"):  "Large + Small + Index Long (all ex-Commercial)",
+    ("Gross Positions", "L+S+I Short"): "Large + Small + Index Short (all ex-Commercial)",
+}
+
+# Sub-group separators within Gross Positions (medium border before each new pair)
+_RECAP_COL_SUBSEP = {
+    ("Gross Positions", "L+S Long"),      # CIT: after Large pair
+    ("Gross Positions", "Index Long"),    # CIT: after L+S pair
+    ("Gross Positions", "L+S+I Long"),    # CIT: after Index pair
+    ("Gross Positions", "Comm Long"),     # CIT + Disagg: start of commercial
+    ("Gross Positions", "Other Long"),    # Disagg: after MM pair
+    ("Gross Positions", "Non-Rep Long"),  # Disagg: after Other pair
+    ("Gross Positions", "Swap Long"),     # Disagg: after Non-Rep pair
+    ("MM+O+NR", "Long"),                  # Disagg: aggregate pair separator
 }
 
 def _recap_html(df, signed=False, change_table=False, scroll=False, signed_groups=None,
@@ -1673,36 +1692,56 @@ def _recap_html(df, signed=False, change_table=False, scroll=False, signed_group
         if g == prev: groups[-1][1] += 1
         else: groups.append([g, 1]); prev = g
 
-    # Header row 1 — merged group headers
+    # Pre-compute border class per column: gsep = major group start, gsub = sub-group within Gross
+    col_sep = []
+    ci = 0
+    for g, span in groups:
+        for j in range(span):
+            c = cols[ci + j]
+            if j == 0:
+                col_sep.append("gsep")
+            elif c in _RECAP_COL_SUBSEP:
+                col_sep.append("gsub")
+            else:
+                col_sep.append("")
+        ci += span
+
+    # Header row 1 — merged group headers (bold left border on each group)
     h1 = '<tr><th class="idx sub"></th>'
     for g, span in groups:
         bg = _RECAP_GROUP_BG.get(g, "#f9fafb")
         fg = _RECAP_GROUP_TEXT.get(g, "#111827")
-        h1 += f'<th colspan="{span}" class="grp" style="background:{bg};color:{fg}">{g}</th>'
+        h1 += (f'<th colspan="{span}" class="grp" '
+               f'style="background:{bg};color:{fg};border-left:2.5px solid #6b7280">{g}</th>')
     h1 += '</tr>'
 
     # Header row 2 — sub-column names (with hover tooltips where defined)
     h2 = '<tr><th class="idx sub"></th>'
-    for c in cols:
+    for i, c in enumerate(cols):
         g = c[0]
+        sep_cls = col_sep[i]
         tip = _COLUMN_TOOLTIPS.get(c)
         tip_attr = f' data-tt="{tip}"' if tip else ''
         label = f'{c[1]}&thinsp;<span style="font-size:.6rem;color:#9ca3af;font-weight:400">ⓘ</span>' if tip else c[1]
+        fsz = ";font-size:.62rem" if len(c[1]) > 9 else ""
+        cls_str = f"sub {sep_cls}".strip()
         if g in _RECAP_GROUP_TEXT:
             bg = _RECAP_GROUP_BG.get(g, "#f9fafb")
             fg = _RECAP_GROUP_TEXT[g]
-            h2 += f'<th class="sub" style="background:{bg};color:{fg}"{tip_attr}>{label}</th>'
+            h2 += f'<th class="{cls_str}" style="background:{bg};color:{fg}{fsz}"{tip_attr}>{label}</th>'
         else:
-            h2 += f'<th class="sub"{tip_attr}>{label}</th>'
+            style_attr = f' style="font-size:.62rem"' if fsz else ''
+            h2 += f'<th class="{cls_str}"{style_attr}{tip_attr}>{label}</th>'
     h2 += '</tr>'
 
     # Body rows
     body = ""
     for idx, row in df.iterrows():
         body += f'<tr><td class="idx">{idx}</td>'
-        for c in cols:
+        for i, c in enumerate(cols):
+            sep_cls = col_sep[i]
             v = row[c]
-            if pd.isna(v): body += '<td>—</td>'; continue
+            if pd.isna(v): body += f'<td class="{sep_cls}">—</td>'; continue
             is_z_row  = z_rows and idx in z_rows
             use_signed = (signed or change_table
                           or (signed_rows and idx in signed_rows)
@@ -1717,7 +1756,8 @@ def _recap_html(df, signed=False, change_table=False, scroll=False, signed_group
                 txt = f"{v:.1f}%"; cls = ""
             else:
                 txt = f"{v:{fmt}}"; cls = ""
-            body += f'<td class="{cls}">{txt}</td>'
+            full_cls = f"{cls} {sep_cls}".strip()
+            body += f'<td class="{full_cls}">{txt}</td>'
         body += '</tr>'
 
     scroll_style = "overflow-x:auto;overflow-y:auto;max-height:420px;" if scroll else "overflow-x:auto;"
@@ -1736,14 +1776,17 @@ def _build_recap_df(d, report):
     cols = {}
 
     if report == "CIT":
-        for src, dst in [
-            ("Spec Long",    "Large Long"),  ("Spec Short",    "Large Short"),
-            ("Non Rep Long", "Small Long"),  ("Non Rep Short", "Small Short"),
-            ("Index Long",   "Index Long"),  ("Index Short",   "Index Short"),
-            ("Comm Long",    "Comm Long"),   ("Comm Short",    "Comm Short"),
-        ]:
-            if src in d.columns:
-                cols[("Gross Positions", dst)] = gc(src) / 1000
+        for src, dst in [("Spec Long","Large Long"),("Spec Short","Large Short"),
+                         ("Non Rep Long","Small Long"),("Non Rep Short","Small Short")]:
+            if src in d.columns: cols[("Gross Positions", dst)] = gc(src) / 1000
+        cols[("Gross Positions", "L+S Long")]    = (gc("Spec Long") + gc("Non Rep Long"))  / 1000
+        cols[("Gross Positions", "L+S Short")]   = (gc("Spec Short")+ gc("Non Rep Short")) / 1000
+        for src, dst in [("Index Long","Index Long"),("Index Short","Index Short")]:
+            if src in d.columns: cols[("Gross Positions", dst)] = gc(src) / 1000
+        cols[("Gross Positions", "L+S+I Long")]  = (gc("Spec Long") + gc("Non Rep Long")  + gc("Index Long"))  / 1000
+        cols[("Gross Positions", "L+S+I Short")] = (gc("Spec Short")+ gc("Non Rep Short") + gc("Index Short")) / 1000
+        for src, dst in [("Comm Long","Comm Long"),("Comm Short","Comm Short")]:
+            if src in d.columns: cols[("Gross Positions", dst)] = gc(src) / 1000
 
         cols[("NET", "Large")]        = gc("Spec Net")   / 1000
         cols[("NET", "Small")]        = gc("Non Rep Net") / 1000
@@ -1768,13 +1811,14 @@ def _build_recap_df(d, report):
             if src in d.columns:
                 cols[("Gross Positions", dst)] = gc(src) / 1000
 
-        cols[("Spec ex Swap", "Long")]  = (gc("MM Long")  + gc("Other Long")  + gc("Non Rep Long"))  / 1000
-        cols[("Spec ex Swap", "Short")] = (gc("MM Short") + gc("Other Short") + gc("Non Rep Short")) / 1000
+        cols[("MM+O+NR", "Long")]  = (gc("MM Long")  + gc("Other Long")  + gc("Non Rep Long"))  / 1000
+        cols[("MM+O+NR", "Short")] = (gc("MM Short") + gc("Other Short") + gc("Non Rep Short")) / 1000
 
-        cols[("NET", "MM")]   = gc("MM Net")   / 1000
-        cols[("NET", "Rest")] = (gc("Other Net") + gc("Non Rep Net")) / 1000
-        cols[("NET", "Swap")] = gc("Swap Net")  / 1000
-        cols[("NET", "Comm")] = gc("Comm Net")  / 1000
+        cols[("NET", "MM")]      = gc("MM Net")   / 1000
+        cols[("NET", "Rest")]    = (gc("Other Net") + gc("Non Rep Net")) / 1000
+        cols[("NET", "MM+O+NR")] = (gc("MM Net") + gc("Other Net") + gc("Non Rep Net")) / 1000
+        cols[("NET", "Swap")]    = gc("Swap Net")  / 1000
+        cols[("NET", "Comm")]    = gc("Comm Net")  / 1000
 
         for src, dst in [
             ("MM Spread",    "MM Spread"),
@@ -2163,13 +2207,19 @@ def render_recap(d, report, color, commodity="KC", is_options=False):
 
 **Small Long / Small Short** — Non-Reportable
 
+**L+S Long / L+S Short** — Large + Small gross (Non-Commercial + Non-Reportable)
+
+**L+S+I Long / L+S+I Short** — Large + Small + Index gross (all ex-Commercial)
+
 **Large+Small** — Non-Commercial Net + Non-Reportable Net (total non-index speculative net)
 
 **Lrg+Sml+Idx** — Non-Commercial Net + Non-Reportable Net + Index Traders Net (everything ex-Commercial)
 """
     else:
         guide = """
-**Spec ex Swap Long/Short** — MM Long/Short + Other Long/Short + Non-Rep Long/Short (all speculative ex swap dealers)
+**MM+O+NR Long/Short** — MM Long/Short + Other Long/Short + Non-Rep Long/Short (all speculative ex swap dealers)
+
+**MM+O+NR Net** — MM Net + Other Net + Non-Rep Net (combined speculative ex-swap net)
 
 **Rest (NET)** — Other Net + Non-Reportable Net combined
 """
@@ -4848,6 +4898,10 @@ def render_pain_trade(d, commodity, report, color, is_options):
 
     _y_min = int(scatter_df["Rollex"].min() * 0.97) if not scatter_df.empty else 0
     _y_max = int(scatter_df["Rollex"].max() * 1.03) if not scatter_df.empty else 500
+    # Ensure the latest daily Rollex stays in view even if outside the COT-date range
+    if pd.notna(px_latest_rx):
+        _y_min = min(_y_min, int(px_latest_rx * 0.97))
+        _y_max = max(_y_max, int(px_latest_rx * 1.03))
     _x_abs = scatter_df[["Long Add", "Long Liq", "Short Add", "Short Cover"]].abs().max().max()
     _x_max = int(_x_abs * 1.1) if not np.isnan(_x_abs) else 25
 
@@ -4874,6 +4928,18 @@ def render_pain_trade(d, commodity, report, color, is_options):
             annotation_text=f"Rollex {window_px:.1f} ({window_date})  ",
             annotation_font=dict(size=10, color="#4a5568"),
             annotation_position="left",
+        )
+    # Latest daily Rollex (post-COT) — golden dotted line, only when it differs from the COT-date Rollex
+    if pd.notna(px_latest_rx) and date_latest_rx != window_date:
+        _close = pd.notna(window_px) and abs(px_latest_rx - window_px) < max(
+            (_y_max - _y_min) * 0.03, 0.5
+        )
+        fig2.add_hline(
+            y=px_latest_rx, line_color=_PT_AMBER, line_width=2, line_dash="dot",
+            annotation_text=f"Latest Rollex {px_latest_rx:.1f} ({date_latest_rx})  ",
+            annotation_font=dict(size=10, color=_PT_AMBER),
+            annotation_position="left",
+            annotation_yshift=14 if _close else 0,
         )
     fig2.add_vline(x=0, line_color="#cccccc", line_width=1)
 
