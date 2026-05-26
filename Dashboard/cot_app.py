@@ -1614,8 +1614,8 @@ _RECAP_CSS = """
 .rtbl .sub{background:#f9fafb;font-size:.70rem;color:#555;font-weight:600;text-align:center}
 .rtbl tbody tr:hover td{background:#f0f9ff!important}
 .rpos{color:#16a34a}.rneg{color:#dc2626}
-.rtbl .gsep{border-left:2.5px solid #6b7280!important}
-.rtbl .gsub{border-left:1.5px solid #b8c0cc!important}
+.rtbl .gsep{box-shadow:inset 3px 0 0 #6b7280}
+.rtbl .gsub{box-shadow:inset 1.5px 0 0 #b8c0cc}
 .rtbl th.sub[data-tt]{position:relative;cursor:help}
 .rtbl th.sub[data-tt]::after{
   content:attr(data-tt);
@@ -1712,7 +1712,7 @@ def _recap_html(df, signed=False, change_table=False, scroll=False, signed_group
         bg = _RECAP_GROUP_BG.get(g, "#f9fafb")
         fg = _RECAP_GROUP_TEXT.get(g, "#111827")
         h1 += (f'<th colspan="{span}" class="grp" '
-               f'style="background:{bg};color:{fg};border-left:2.5px solid #6b7280">{g}</th>')
+               f'style="background:{bg};color:{fg};box-shadow:inset 3px 0 0 #6b7280">{g}</th>')
     h1 += '</tr>'
 
     # Header row 2 — sub-column names (with hover tooltips where defined)
