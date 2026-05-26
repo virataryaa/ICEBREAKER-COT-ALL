@@ -2132,7 +2132,7 @@ def render_recap(d, report, color, commodity="KC", is_options=False):
                                 signed_rows={"Δ 1w", "Δ 1m", "Z-Score"},
                                 z_rows={"Z-Score"},
                                 pct_subcols=_PX_PCT,
-                                max_height=118), unsafe_allow_html=True)
+                                max_height=148), unsafe_allow_html=True)
 
     with st.expander("Historical positions  ·  k lots", expanded=True):
         st.markdown(_recap_html(view, scroll=True, pct_subcols=_PX_PCT), unsafe_allow_html=True)
@@ -3248,7 +3248,7 @@ def render_combined(commodity, start_date, end_date, color):
             columns=body_df.columns)
 
         with st.expander("Change summary  ·  k lots", expanded=True):
-            st.markdown(_recap_html(summary_df, signed_rows={"Δ 1w","Δ 1m","Z-Score"}, z_rows={"Z-Score"}, max_height=118), unsafe_allow_html=True)
+            st.markdown(_recap_html(summary_df, signed_rows={"Δ 1w","Δ 1m","Z-Score"}, z_rows={"Z-Score"}, max_height=148), unsafe_allow_html=True)
 
         with st.expander("Historical positions  ·  k lots", expanded=True):
             disp = body_df.iloc[:20].copy()
