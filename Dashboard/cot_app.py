@@ -4966,38 +4966,42 @@ def render_pain_trade(d, commodity, report, color, is_options):
     _zero = [0.0] * len(_agg)
     _dates = _agg["_dates"]
 
-    def _htpl(label):
-        return (
-            f"<b>{label}</b>: %{{x:.2f}}k contracts<br>"
-            "Bucket: %{y}<br>"
-            "COT: %{customdata}"
-            "<extra></extra>"
-        )
+    # Pass actual flow value + dates as customdata so hover shows the bar's
+    # own contribution, not %{x} which Plotly resolves to base+x (end position).
+    def _cd(vals):
+        return [[round(float(v), 3), d] for v, d in zip(vals, _dates)]
+
+    _htpl = (
+        "<b>%{fullData.name}</b>: %{customdata[0]:.2f}k contracts<br>"
+        "Bucket: %{y}<br>"
+        "COT: %{customdata[1]}"
+        "<extra></extra>"
+    )
 
     fig2 = go.Figure()
     fig2.add_trace(go.Bar(
         y=_agg["_label"], x=_la, base=_zero,
         name="Long Add", orientation="h",
         marker_color=_PT_DARK_GREEN, opacity=0.9,
-        customdata=_dates, hovertemplate=_htpl("Long Add"),
+        customdata=_cd(_la), hovertemplate=_htpl,
     ))
     fig2.add_trace(go.Bar(
         y=_agg["_label"], x=_sc, base=_la,
         name="Short Cover", orientation="h",
         marker_color=_PT_LIGHT_RED, opacity=0.9,
-        customdata=_dates, hovertemplate=_htpl("Short Cover"),
+        customdata=_cd(_sc), hovertemplate=_htpl,
     ))
     fig2.add_trace(go.Bar(
         y=_agg["_label"], x=_ll, base=_zero,
         name="Long Liq.", orientation="h",
         marker_color=_PT_LIGHT_GREEN, opacity=0.9,
-        customdata=_dates, hovertemplate=_htpl("Long Liq."),
+        customdata=_cd(_ll), hovertemplate=_htpl,
     ))
     fig2.add_trace(go.Bar(
         y=_agg["_label"], x=_sa, base=_ll,
         name="Short Add", orientation="h",
         marker_color=_PT_DARK_RED, opacity=0.9,
-        customdata=_dates, hovertemplate=_htpl("Short Add"),
+        customdata=_cd(_sa), hovertemplate=_htpl,
     ))
 
     fig2.add_vline(x=0, line_color="#cccccc", line_width=1)
