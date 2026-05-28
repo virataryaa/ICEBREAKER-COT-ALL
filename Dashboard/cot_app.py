@@ -4992,7 +4992,7 @@ def render_pain_trade(d, commodity, report, color, is_options):
 
     # ── COT-date and latest Rollex bucket indicators ──────────────────────────
     def _nearest_bucket_label(price, agg_df, step):
-        row = agg_df[( agg_df["_bin"] <= price) & (price < agg_df["_bin"] + step)]
+        row = agg_df[(agg_df["_bin"] <= price) & (price < agg_df["_bin"] + step)]
         if row.empty:
             row = agg_df.iloc[(agg_df["_bin"] - price).abs().argsort()[:1]]
         return row.iloc[0]["_label"] if not row.empty else None
@@ -5000,19 +5000,31 @@ def render_pain_trade(d, commodity, report, color, is_options):
     if pd.notna(window_px) and not _agg.empty:
         _cur_lbl = _nearest_bucket_label(window_px, _agg, ptm_step)
         if _cur_lbl:
+            fig2.add_shape(
+                type="line", x0=0, x1=1, xref="paper",
+                y0=_cur_lbl, y1=_cur_lbl, yref="y",
+                line=dict(color="#888888", width=1.5, dash="dot"),
+                layer="below",
+            )
             fig2.add_annotation(
                 x=1.01, xref="paper", y=_cur_lbl, yref="y",
-                text=f"<b>COT {window_px:.1f}</b> ({window_date})",
+                text=f"<b>Price at COT</b> ({window_px:.1f}, {window_date})",
                 showarrow=False, xanchor="left", align="left",
                 font=dict(size=8.5, color="#4a5568", family="-apple-system,sans-serif"),
-                bgcolor="rgba(230,230,245,0.92)", yshift=16,
+                bgcolor="rgba(230,230,245,0.92)",
             )
     if pd.notna(px_latest_rx) and not _agg.empty and date_latest_rx != window_date:
         _rx_lbl = _nearest_bucket_label(px_latest_rx, _agg, ptm_step)
         if _rx_lbl:
+            fig2.add_shape(
+                type="line", x0=0, x1=1, xref="paper",
+                y0=_rx_lbl, y1=_rx_lbl, yref="y",
+                line=dict(color=_PT_AMBER, width=1.5, dash="dot"),
+                layer="below",
+            )
             fig2.add_annotation(
                 x=1.01, xref="paper", y=_rx_lbl, yref="y",
-                text=f"<b>Rollex {px_latest_rx:.1f}</b> ({date_latest_rx})",
+                text=f"<b>Latest Rollex Price</b> ({px_latest_rx:.1f}, {date_latest_rx})",
                 showarrow=False, xanchor="left", align="left",
                 font=dict(size=8.5, color=_PT_AMBER, family="-apple-system,sans-serif"),
                 bgcolor="rgba(255,248,220,0.92)",
@@ -5021,7 +5033,7 @@ def render_pain_trade(d, commodity, report, color, is_options):
     fig2.update_layout(
         barmode="stack",
         height=max(380, len(_agg) * 62 + 80),
-        margin=dict(t=10, b=10, l=90, r=260),
+        margin=dict(t=10, b=10, l=90, r=310),
         legend=dict(orientation="h", y=1.04, x=0, font=dict(size=9)),
         xaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9),
                    title="k Contracts", zeroline=False, range=list(x_zoom)),
