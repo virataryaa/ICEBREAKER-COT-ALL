@@ -4902,40 +4902,19 @@ def render_pain_trade(d, commodity, report, color, is_options):
         unsafe_allow_html=True,
     )
 
-    _y_min = int(scatter_df["Rollex"].min() * 0.97) if not scatter_df.empty else 0
-    _y_max = int(scatter_df["Rollex"].max() * 1.03) if not scatter_df.empty else 500
-    # Ensure the latest daily Rollex stays in view even if outside the COT-date range
-    if pd.notna(px_latest_rx):
-        _y_min = min(_y_min, int(px_latest_rx * 0.97))
-        _y_max = max(_y_max, int(px_latest_rx * 1.03))
-    _x_abs = scatter_df[["Long Add", "Long Liq", "Short Add", "Short Cover"]].abs().max().max()
-    _x_max = int(_x_abs * 1.1) if not np.isnan(_x_abs) else 25
-
-    with st.expander("Zoom controls", expanded=False):
-        y_zoom = st.slider("Y zoom — Rollex price",
-                           min_value=_y_min, max_value=_y_max,
-                           value=(_y_min, _y_max), key=f"pt_v2_y_{commodity}_{report}")
-        st.markdown(
-            "<div style='font-size:.62rem;font-weight:600;letter-spacing:.18em;"
-            "text-transform:uppercase;color:#8AA6B3;margin:14px 0 8px 0'>"
-            "PTM Controller</div>",
-            unsafe_allow_html=True,
+    _rx_range_v2 = (scatter_df["Rollex"].max() - scatter_df["Rollex"].min()
+                    if not scatter_df.empty else 1)
+    _auto_step_v2 = _pt_nice_step(_rx_range_v2)
+    _ptm_c, _ = st.columns([0.18, 0.82])
+    with _ptm_c:
+        ptm_step = st.number_input(
+            f"Bucket size (auto {_auto_step_v2})",
+            min_value=0.1, value=float(_auto_step_v2), step=0.5,
+            format="%.1f", key=f"ptm_step_{commodity}_{report}",
         )
-        _rx_range_v2 = (scatter_df["Rollex"].max() - scatter_df["Rollex"].min()
-                        if not scatter_df.empty else 1)
-        _auto_step_v2 = _pt_nice_step(_rx_range_v2)
-        _ptm_c, _ = st.columns([0.28, 0.72])
-        with _ptm_c:
-            ptm_step = st.number_input(
-                f"Bucket size (auto {_auto_step_v2})",
-                min_value=0.1, value=float(_auto_step_v2), step=0.5,
-                format="%.1f", key=f"ptm_step_{commodity}_{report}",
-            )
 
     # ── Bucket by Rollex price (PTM Controller) ───────────────────────────────
-    _bkt = scatter_df[
-        (scatter_df["Rollex"] >= y_zoom[0]) & (scatter_df["Rollex"] <= y_zoom[1])
-    ].copy()
+    _bkt = scatter_df.copy()
     _bkt["_bin"]   = ((_bkt["Rollex"] / ptm_step).apply(np.floor) * ptm_step).round(4)
     _bkt["_label"] = _bkt["_bin"].apply(lambda x: f"{x:.1f}–{x + ptm_step:.1f}")
     _agg = (
