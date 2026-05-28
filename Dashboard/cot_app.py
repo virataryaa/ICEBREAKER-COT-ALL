@@ -4912,15 +4912,9 @@ def render_pain_trade(d, commodity, report, color, is_options):
     _x_max = int(_x_abs * 1.1) if not np.isnan(_x_abs) else 25
 
     with st.expander("Zoom controls", expanded=False):
-        zc1, zc2 = st.columns(2)
-        with zc1:
-            y_zoom = st.slider("Y zoom — Rollex price",
-                               min_value=_y_min, max_value=_y_max,
-                               value=(_y_min, _y_max), key=f"pt_v2_y_{commodity}_{report}")
-        with zc2:
-            x_zoom = st.slider("X zoom — k Contracts",
-                               min_value=-_x_max, max_value=_x_max,
-                               value=(-_x_max, _x_max), key=f"pt_v2_x_{commodity}_{report}")
+        y_zoom = st.slider("Y zoom — Rollex price",
+                           min_value=_y_min, max_value=_y_max,
+                           value=(_y_min, _y_max), key=f"pt_v2_y_{commodity}_{report}")
         st.markdown(
             "<div style='font-size:.62rem;font-weight:600;letter-spacing:.18em;"
             "text-transform:uppercase;color:#8AA6B3;margin:14px 0 8px 0'>"
@@ -5077,7 +5071,7 @@ def render_pain_trade(d, commodity, report, color, is_options):
         margin=dict(t=10, b=10, l=90, r=480),
         legend=dict(orientation="h", y=1.04, x=0, font=dict(size=9)),
         xaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9),
-                   title="k Contracts", zeroline=False, range=list(x_zoom)),
+                   title="k Contracts", zeroline=False, autorange=True),
         yaxis=dict(showgrid=False, tickfont=dict(size=9),
                    title="Rollex Bucket",
                    categoryorder="array", categoryarray=list(_agg["_label"])),
