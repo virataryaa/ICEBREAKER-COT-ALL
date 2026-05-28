@@ -4950,12 +4950,15 @@ def render_pain_trade(d, commodity, report, color, is_options):
         ].sum().reset_index().sort_values("_bin")
     )
 
+    # RIGHT (bullish, positive): Long Add dark green → Short Cover light green
+    # LEFT  (bearish, negative): Short Add dark red  → Long Liq  light red
+    # Trace order controls stacking within each side: earlier trace = inner (closer to 0)
     fig2 = go.Figure()
     for _col, _c, _nm in [
-        ("Long Add",    _PT_DARK_GREEN,  "Long Add"),
-        ("Long Liq",    _PT_LIGHT_GREEN, "Long Liq."),
-        ("Short Add",   _PT_DARK_RED,    "Short Add"),
-        ("Short Cover", _PT_LIGHT_RED,   "Short Cover"),
+        ("Long Add",    _PT_DARK_GREEN, "Long Add"),     # RIGHT inner — dark green
+        ("Short Cover", _PT_LIGHT_GREEN, "Short Cover"), # RIGHT outer — light green
+        ("Short Add",   _PT_DARK_RED,   "Short Add"),    # LEFT  inner — dark red
+        ("Long Liq",    _PT_LIGHT_RED,  "Long Liq."),    # LEFT  outer — light red
     ]:
         fig2.add_trace(go.Bar(
             y=_agg["_label"], x=_agg[_col],
