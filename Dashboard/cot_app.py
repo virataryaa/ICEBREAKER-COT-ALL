@@ -4950,18 +4950,41 @@ def render_pain_trade(d, commodity, report, color, is_options):
         ].sum().reset_index().sort_values("_bin")
     )
 
+    # Explicit base stacking so positive bars always anchor from 0 rightward
+    # and negative bars always anchor from 0 leftward — barmode="stack" is NOT
+    # used because it stacks sequentially and misplaces Short Cover when Long Liq
+    # has already pulled the cumulative baseline negative.
+    _la = _agg["Long Add"].fillna(0)
+    _ll = _agg["Long Liq"].fillna(0)
+    _sa = _agg["Short Add"].fillna(0)
+    _sc = _agg["Short Cover"].fillna(0)
+    _zero = [0.0] * len(_agg)
+
     fig2 = go.Figure()
-    for _col, _c, _nm in [
-        ("Long Add",    _PT_DARK_GREEN,  "Long Add"),    # RIGHT — dark green
-        ("Long Liq",    _PT_LIGHT_GREEN, "Long Liq."),   # LEFT  — light green
-        ("Short Add",   _PT_DARK_RED,    "Short Add"),   # LEFT  — dark red
-        ("Short Cover", _PT_LIGHT_RED,   "Short Cover"), # RIGHT — light red/pink
-    ]:
-        fig2.add_trace(go.Bar(
-            y=_agg["_label"], x=_agg[_col],
-            name=_nm, orientation="h",
-            marker_color=_c, opacity=0.9,
-        ))
+    # RIGHT inner: Long Add — from 0 rightward
+    fig2.add_trace(go.Bar(
+        y=_agg["_label"], x=_la, base=_zero,
+        name="Long Add", orientation="h",
+        marker_color=_PT_DARK_GREEN, opacity=0.9,
+    ))
+    # RIGHT outer: Short Cover — stacks beyond Long Add
+    fig2.add_trace(go.Bar(
+        y=_agg["_label"], x=_sc, base=_la,
+        name="Short Cover", orientation="h",
+        marker_color=_PT_LIGHT_RED, opacity=0.9,
+    ))
+    # LEFT inner: Long Liq — from 0 leftward
+    fig2.add_trace(go.Bar(
+        y=_agg["_label"], x=_ll, base=_zero,
+        name="Long Liq.", orientation="h",
+        marker_color=_PT_LIGHT_GREEN, opacity=0.9,
+    ))
+    # LEFT outer: Short Add — stacks beyond Long Liq
+    fig2.add_trace(go.Bar(
+        y=_agg["_label"], x=_sa, base=_ll,
+        name="Short Add", orientation="h",
+        marker_color=_PT_DARK_RED, opacity=0.9,
+    ))
 
     fig2.add_vline(x=0, line_color="#cccccc", line_width=1)
 
@@ -5031,7 +5054,7 @@ def render_pain_trade(d, commodity, report, color, is_options):
             )
 
     fig2.update_layout(
-        barmode="stack",
+        barmode="overlay",
         height=max(380, len(_agg) * 62 + 80),
         margin=dict(t=10, b=10, l=90, r=480),
         legend=dict(orientation="h", y=1.04, x=0, font=dict(size=9)),
