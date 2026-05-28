@@ -4965,34 +4965,63 @@ def render_pain_trade(d, commodity, report, color, is_options):
 
     fig2.add_vline(x=0, line_color="#cccccc", line_width=1)
 
-    # Annotate bucket containing the current COT-date Rollex
-    if pd.notna(window_px) and not _agg.empty:
-        _cur_row = _agg[(_agg["_bin"] <= window_px) & (window_px < _agg["_bin"] + ptm_step)]
-        if not _cur_row.empty:
+    # ── Week tags (W-4 … Latest) mapped to their bucket ──────────────────────
+    recent5 = scatter_df.tail(5).reset_index(drop=True)
+    _week_label_list = ["W-4", "W-3", "W-2", "W-1", "Latest"]
+    _bucket_weeks: dict = {}
+    for _wi, _wrow in recent5.iterrows():
+        _wl   = _week_label_list[_wi] if _wi < len(_week_label_list) else f"W-{4 - _wi}"
+        _wb   = round(np.floor(float(_wrow["Rollex"]) / ptm_step) * ptm_step, 4)
+        _wlbl = f"{_wb:.1f}–{_wb + ptm_step:.1f}"
+        _bucket_weeks.setdefault(_wlbl, []).append(
+            (_wl, _wrow["Date"].strftime("%d/%m"), _wl == "Latest")
+        )
+    for _blbl, _wks in _bucket_weeks.items():
+        if _blbl in _agg["_label"].values:
+            _tag   = " · ".join(w for w, _, _ in _wks)
+            _dates = " · ".join(d for _, d, _ in _wks)
+            _is_lat = any(il for _, _, il in _wks)
             fig2.add_annotation(
-                x=1.01, xref="paper", y=_cur_row.iloc[0]["_label"], yref="y",
-                text=f"<b>COT {window_px:.1f}</b> ({window_date})",
+                x=1.01, xref="paper", y=_blbl, yref="y",
+                text=(f"<b style='color:{'#8b0000' if _is_lat else _PT_NAVY}'>{_tag}</b>"
+                      f"<i style='font-size:7px;color:#888888'> {_dates}</i>"),
                 showarrow=False, xanchor="left", align="left",
-                font=dict(size=8.5, color="#4a5568",
-                          family="-apple-system,sans-serif"),
-                bgcolor="rgba(255,255,255,0.88)",
-            )
-    if pd.notna(px_latest_rx) and not _agg.empty and date_latest_rx != window_date:
-        _rx_row = _agg[(_agg["_bin"] <= px_latest_rx) & (px_latest_rx < _agg["_bin"] + ptm_step)]
-        if not _rx_row.empty:
-            fig2.add_annotation(
-                x=1.01, xref="paper", y=_rx_row.iloc[0]["_label"], yref="y",
-                text=f"<b>Rollex {px_latest_rx:.1f}</b> ({date_latest_rx})",
-                showarrow=False, xanchor="left", align="left",
-                font=dict(size=8.5, color=_PT_AMBER,
-                          family="-apple-system,sans-serif"),
+                font=dict(size=8, color=_PT_NAVY, family="-apple-system,sans-serif"),
                 bgcolor="rgba(255,255,255,0.88)",
             )
 
+    # ── COT-date and latest Rollex bucket indicators ──────────────────────────
+    def _nearest_bucket_label(price, agg_df, step):
+        row = agg_df[( agg_df["_bin"] <= price) & (price < agg_df["_bin"] + step)]
+        if row.empty:
+            row = agg_df.iloc[(agg_df["_bin"] - price).abs().argsort()[:1]]
+        return row.iloc[0]["_label"] if not row.empty else None
+
+    if pd.notna(window_px) and not _agg.empty:
+        _cur_lbl = _nearest_bucket_label(window_px, _agg, ptm_step)
+        if _cur_lbl:
+            fig2.add_annotation(
+                x=1.01, xref="paper", y=_cur_lbl, yref="y",
+                text=f"<b>COT {window_px:.1f}</b> ({window_date})",
+                showarrow=False, xanchor="left", align="left",
+                font=dict(size=8.5, color="#4a5568", family="-apple-system,sans-serif"),
+                bgcolor="rgba(230,230,245,0.92)", yshift=16,
+            )
+    if pd.notna(px_latest_rx) and not _agg.empty and date_latest_rx != window_date:
+        _rx_lbl = _nearest_bucket_label(px_latest_rx, _agg, ptm_step)
+        if _rx_lbl:
+            fig2.add_annotation(
+                x=1.01, xref="paper", y=_rx_lbl, yref="y",
+                text=f"<b>Rollex {px_latest_rx:.1f}</b> ({date_latest_rx})",
+                showarrow=False, xanchor="left", align="left",
+                font=dict(size=8.5, color=_PT_AMBER, family="-apple-system,sans-serif"),
+                bgcolor="rgba(255,248,220,0.92)",
+            )
+
     fig2.update_layout(
-        barmode="group",
+        barmode="stack",
         height=max(380, len(_agg) * 62 + 80),
-        margin=dict(t=10, b=10, l=90, r=220),
+        margin=dict(t=10, b=10, l=90, r=260),
         legend=dict(orientation="h", y=1.04, x=0, font=dict(size=9)),
         xaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9),
                    title="k Contracts", zeroline=False, range=list(x_zoom)),
