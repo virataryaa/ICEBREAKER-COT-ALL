@@ -4921,65 +4921,88 @@ def render_pain_trade(d, commodity, report, color, is_options):
             x_zoom = st.slider("X zoom — k Contracts",
                                min_value=-_x_max, max_value=_x_max,
                                value=(-_x_max, _x_max), key=f"pt_v2_x_{commodity}_{report}")
+        st.markdown(
+            "<div style='font-size:.62rem;font-weight:600;letter-spacing:.18em;"
+            "text-transform:uppercase;color:#8AA6B3;margin:14px 0 8px 0'>"
+            "PTM Controller</div>",
+            unsafe_allow_html=True,
+        )
+        _rx_range_v2 = (scatter_df["Rollex"].max() - scatter_df["Rollex"].min()
+                        if not scatter_df.empty else 1)
+        _auto_step_v2 = _pt_nice_step(_rx_range_v2)
+        _ptm_c, _ = st.columns([0.28, 0.72])
+        with _ptm_c:
+            ptm_step = st.number_input(
+                f"Bucket size (auto {_auto_step_v2})",
+                min_value=0.1, value=float(_auto_step_v2), step=0.5,
+                format="%.1f", key=f"ptm_step_{commodity}_{report}",
+            )
+
+    # ── Bucket by Rollex price (PTM Controller) ───────────────────────────────
+    _bkt = scatter_df[
+        (scatter_df["Rollex"] >= y_zoom[0]) & (scatter_df["Rollex"] <= y_zoom[1])
+    ].copy()
+    _bkt["_bin"]   = ((_bkt["Rollex"] / ptm_step).apply(np.floor) * ptm_step).round(4)
+    _bkt["_label"] = _bkt["_bin"].apply(lambda x: f"{x:.1f}–{x + ptm_step:.1f}")
+    _agg = (
+        _bkt.groupby(["_bin", "_label"])[
+            ["Long Add", "Long Liq", "Short Add", "Short Cover"]
+        ].sum().reset_index().sort_values("_bin")
+    )
 
     fig2 = go.Figure()
-    fig2.add_trace(_pt_hbar(scatter_df["Long Add"],    scatter_df["Rollex"], _PT_DARK_GREEN,  "Long Add"))
-    fig2.add_trace(_pt_hbar(scatter_df["Long Liq"],    scatter_df["Rollex"], _PT_LIGHT_GREEN, "Long Liq."))
-    fig2.add_trace(_pt_hbar(scatter_df["Short Add"],   scatter_df["Rollex"], _PT_DARK_RED,    "Short Add"))
-    fig2.add_trace(_pt_hbar(scatter_df["Short Cover"], scatter_df["Rollex"], _PT_LIGHT_RED,   "Short Cover"))
+    for _col, _c, _nm in [
+        ("Long Add",    _PT_DARK_GREEN,  "Long Add"),
+        ("Long Liq",    _PT_LIGHT_GREEN, "Long Liq."),
+        ("Short Add",   _PT_DARK_RED,    "Short Add"),
+        ("Short Cover", _PT_LIGHT_RED,   "Short Cover"),
+    ]:
+        fig2.add_trace(go.Bar(
+            y=_agg["_label"], x=_agg[_col],
+            name=_nm, orientation="h",
+            marker_color=_c, opacity=0.9,
+        ))
 
-    if pd.notna(window_px):
-        fig2.add_hline(
-            y=window_px, line_color="#4a5568", line_width=2, line_dash="dash",
-            annotation_text=f"Rollex {window_px:.1f} ({window_date})  ",
-            annotation_font=dict(size=10, color="#4a5568"),
-            annotation_position="left",
-        )
-    # Latest daily Rollex (post-COT) — golden dotted line, only when it differs from the COT-date Rollex
-    if pd.notna(px_latest_rx) and date_latest_rx != window_date:
-        _close = pd.notna(window_px) and abs(px_latest_rx - window_px) < max(
-            (_y_max - _y_min) * 0.03, 0.5
-        )
-        fig2.add_hline(
-            y=px_latest_rx, line_color=_PT_AMBER, line_width=2, line_dash="dot",
-            annotation_text=f"Latest Rollex {px_latest_rx:.1f} ({date_latest_rx})  ",
-            annotation_font=dict(size=10, color=_PT_AMBER),
-            annotation_position="left",
-            annotation_yshift=14 if _close else 0,
-        )
     fig2.add_vline(x=0, line_color="#cccccc", line_width=1)
 
-    recent5 = scatter_df.tail(5).reset_index(drop=True)
-    week_labels = ["W-4", "W-3", "W-2", "W-1", "Latest"]
-    for i, row in recent5.iterrows():
-        label    = week_labels[i] if i < len(week_labels) else f"W-{4-i}"
-        rx_price = float(row["Rollex"])
-        cot_date = row["Date"].strftime("%d/%m")
-        is_latest = label == "Latest"
-        tag_text = (f"<b>{label}</b>"
-                    f"<i style='font-size:7px;color:#888888'> {cot_date}</i>")
-        fig2.add_shape(type="line", x0=0, y0=rx_price, x1=_x_max, y1=rx_price,
-                       line=dict(color="#bbbbbb", width=1, dash="dot"),
-                       xref="x", yref="y", layer="below")
-        fig2.add_annotation(
-            x=1.01, xref="paper", y=rx_price, yref="y", text=tag_text,
-            showarrow=False, xanchor="left", align="left",
-            font=dict(size=8, color=_PT_NAVY if not is_latest else _PT_DARK_RED,
-                      family="-apple-system,sans-serif"),
-            bgcolor="rgba(255,255,255,0.88)",
-        )
+    # Annotate bucket containing the current COT-date Rollex
+    if pd.notna(window_px) and not _agg.empty:
+        _cur_row = _agg[(_agg["_bin"] <= window_px) & (window_px < _agg["_bin"] + ptm_step)]
+        if not _cur_row.empty:
+            fig2.add_annotation(
+                x=1.01, xref="paper", y=_cur_row.iloc[0]["_label"], yref="y",
+                text=f"<b>COT {window_px:.1f}</b> ({window_date})",
+                showarrow=False, xanchor="left", align="left",
+                font=dict(size=8.5, color="#4a5568",
+                          family="-apple-system,sans-serif"),
+                bgcolor="rgba(255,255,255,0.88)",
+            )
+    if pd.notna(px_latest_rx) and not _agg.empty and date_latest_rx != window_date:
+        _rx_row = _agg[(_agg["_bin"] <= px_latest_rx) & (px_latest_rx < _agg["_bin"] + ptm_step)]
+        if not _rx_row.empty:
+            fig2.add_annotation(
+                x=1.01, xref="paper", y=_rx_row.iloc[0]["_label"], yref="y",
+                text=f"<b>Rollex {px_latest_rx:.1f}</b> ({date_latest_rx})",
+                showarrow=False, xanchor="left", align="left",
+                font=dict(size=8.5, color=_PT_AMBER,
+                          family="-apple-system,sans-serif"),
+                bgcolor="rgba(255,255,255,0.88)",
+            )
 
     fig2.update_layout(
-        height=600,
-        margin=dict(t=10, b=10, l=60, r=220),
+        barmode="group",
+        height=max(380, len(_agg) * 62 + 80),
+        margin=dict(t=10, b=10, l=90, r=220),
         legend=dict(orientation="h", y=1.04, x=0, font=dict(size=9)),
         xaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9),
                    title="k Contracts", zeroline=False, range=list(x_zoom)),
-        yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9),
-                   title="Rollex Price", range=list(y_zoom)),
+        yaxis=dict(showgrid=False, tickfont=dict(size=9),
+                   title="Rollex Bucket",
+                   categoryorder="array", categoryarray=list(_agg["_label"])),
         template="plotly_white",
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="-apple-system,Helvetica Neue,sans-serif", color=_PT_BLACK, size=10),
+        font=dict(family="-apple-system,Helvetica Neue,sans-serif",
+                  color=_PT_BLACK, size=10),
     )
     _l, _ch, _r = st.columns([0.125, 0.75, 0.125])
     with _ch:
