@@ -5011,7 +5011,7 @@ def render_pain_trade(d, commodity, report, color, is_options):
                 text=f"<b>Price at COT</b> ({window_px:.1f}, {window_date})",
                 showarrow=False, xanchor="left", align="left",
                 font=dict(size=8.5, color="#4a5568", family="-apple-system,sans-serif"),
-                bgcolor="rgba(230,230,245,0.92)", yshift=18,
+                bgcolor="rgba(230,230,245,0.92)",
             )
     if pd.notna(px_latest_rx) and not _agg.empty and date_latest_rx != window_date:
         _rx_lbl = _nearest_bucket_label(px_latest_rx, _agg, ptm_step)
@@ -5023,7 +5023,7 @@ def render_pain_trade(d, commodity, report, color, is_options):
                 layer="below",
             )
             fig2.add_annotation(
-                x=1.01, xref="paper", y=_rx_lbl, yref="y",
+                x=1.27, xref="paper", y=_rx_lbl, yref="y",
                 text=f"<b>Latest Rollex Price</b> ({px_latest_rx:.1f}, {date_latest_rx})",
                 showarrow=False, xanchor="left", align="left",
                 font=dict(size=8.5, color=_PT_AMBER, family="-apple-system,sans-serif"),
@@ -5033,7 +5033,7 @@ def render_pain_trade(d, commodity, report, color, is_options):
     fig2.update_layout(
         barmode="stack",
         height=max(380, len(_agg) * 62 + 80),
-        margin=dict(t=10, b=10, l=90, r=310),
+        margin=dict(t=10, b=10, l=90, r=480),
         legend=dict(orientation="h", y=1.04, x=0, font=dict(size=9)),
         xaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9),
                    title="k Contracts", zeroline=False, range=list(x_zoom)),
