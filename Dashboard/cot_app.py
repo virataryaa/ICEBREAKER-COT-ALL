@@ -5011,7 +5011,7 @@ def render_pain_trade(d, commodity, report, color, is_options):
                 text=f"<b>Price at COT</b> ({window_px:.1f}, {window_date})",
                 showarrow=False, xanchor="left", align="left",
                 font=dict(size=8.5, color="#4a5568", family="-apple-system,sans-serif"),
-                bgcolor="rgba(230,230,245,0.92)",
+                bgcolor="rgba(230,230,245,0.92)", yshift=18,
             )
     if pd.notna(px_latest_rx) and not _agg.empty and date_latest_rx != window_date:
         _rx_lbl = _nearest_bucket_label(px_latest_rx, _agg, ptm_step)
