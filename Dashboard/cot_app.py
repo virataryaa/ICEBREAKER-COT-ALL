@@ -1607,11 +1607,11 @@ _CHANGE_BG = "#f9a8d4"
 
 _RECAP_CSS = """
 <style>
-.rtbl{border-collapse:collapse;font-size:.76rem;width:100%;font-family:-apple-system,sans-serif}
-.rtbl th,.rtbl td{border:1px solid #e5e7eb;padding:3px 8px;white-space:nowrap;text-align:center}
-.rtbl .grp{text-align:center;font-weight:700;font-size:.75rem;letter-spacing:.04em}
-.rtbl .idx{text-align:left;font-weight:600;color:#374151;background:#f9fafb;min-width:70px}
-.rtbl .sub{background:#f9fafb;font-size:.70rem;color:#555;font-weight:600;text-align:center}
+.rtbl{border-collapse:collapse;font-size:.67rem;width:100%;font-family:-apple-system,sans-serif}
+.rtbl th,.rtbl td{border:1px solid #e5e7eb;padding:2px 4px;white-space:nowrap;text-align:center}
+.rtbl .grp{text-align:center;font-weight:700;font-size:.66rem;letter-spacing:.03em}
+.rtbl .idx{text-align:left;font-weight:600;color:#374151;background:#f9fafb;min-width:52px}
+.rtbl .sub{background:#f9fafb;font-size:.62rem;color:#555;font-weight:600;text-align:center}
 .rtbl tbody tr:hover td{background:#f0f9ff!important}
 .rpos{color:#16a34a}.rneg{color:#dc2626}
 .rtbl .gsep{box-shadow:inset 3px 0 0 #6b7280}
@@ -1655,30 +1655,30 @@ _RECAP_CSS = """
 """
 
 _COLUMN_TOOLTIPS = {
-    ("NET", "Large+Small"):      "Large Spec Net + Non-Rep Net",
-    ("NET", "Lrg+Sml+Idx"):     "Large Spec Net + Non-Rep Net + Index Net",
-    ("MM+O+NR", "Long"):              "MM Long + Other Long + Non-Rep Long",
-    ("MM+O+NR", "Short"):             "MM Short + Other Short + Non-Rep Short",
-    ("NET", "MM+O+NR"):               "MM Net + Other Net + Non-Rep Net",
-    ("NET", "Rest"):                  "Other Net + Non-Rep Net",
-    ("NET", "MM"):                    "Managed Money Net",
-    ("NET", "Comm"):                  "Producer/Commercial Net",
-    ("Gross Positions", "L+S Long"):  "Large Long + Small Long (Spec + Non-Rep)",
-    ("Gross Positions", "L+S Short"): "Large Short + Small Short (Spec + Non-Rep)",
-    ("Gross Positions", "L+S+I Long"):  "Large + Small + Index Long (all ex-Commercial)",
-    ("Gross Positions", "L+S+I Short"): "Large + Small + Index Short (all ex-Commercial)",
+    ("NET", "L+S"):              "Large Spec Net + Non-Rep Net",
+    ("NET", "LSI"):              "Large Spec Net + Non-Rep Net + Index Net",
+    ("MM+O+NR", "L"):            "MM Long + Other Long + Non-Rep Long",
+    ("MM+O+NR", "S"):            "MM Short + Other Short + Non-Rep Short",
+    ("NET", "MO+NR"):            "MM Net + Other Net + Non-Rep Net",
+    ("NET", "Rest"):             "Other Net + Non-Rep Net",
+    ("NET", "MM"):               "Managed Money Net",
+    ("NET", "Cm"):               "Producer/Commercial Net",
+    ("Gross Positions", "LS L"): "Large Long + Small Long (Spec + Non-Rep)",
+    ("Gross Positions", "LS S"): "Large Short + Small Short (Spec + Non-Rep)",
+    ("Gross Positions", "LSI L"): "Large + Small + Index Long (all ex-Commercial)",
+    ("Gross Positions", "LSI S"): "Large + Small + Index Short (all ex-Commercial)",
 }
 
 # Sub-group separators within Gross Positions (medium border before each new pair)
 _RECAP_COL_SUBSEP = {
-    ("Gross Positions", "L+S Long"),      # CIT: after Large pair
-    ("Gross Positions", "Index Long"),    # CIT: after L+S pair
-    ("Gross Positions", "L+S+I Long"),    # CIT: after Index pair
-    ("Gross Positions", "Comm Long"),     # CIT + Disagg: start of commercial
-    ("Gross Positions", "Other Long"),    # Disagg: after MM pair
-    ("Gross Positions", "Non-Rep Long"),  # Disagg: after Other pair
-    ("Gross Positions", "Swap Long"),     # Disagg: after Non-Rep pair
-    ("MM+O+NR", "Long"),                  # Disagg: aggregate pair separator
+    ("Gross Positions", "LS L"),   # CIT: after Large pair
+    ("Gross Positions", "Idx L"),  # CIT: after L+S pair
+    ("Gross Positions", "LSI L"),  # CIT: after Index pair
+    ("Gross Positions", "Cm L"),   # CIT + Disagg: start of commercial
+    ("Gross Positions", "Oth L"),  # Disagg: after MM pair
+    ("Gross Positions", "NR L"),   # Disagg: after Other pair
+    ("Gross Positions", "Sw L"),   # Disagg: after Non-Rep pair
+    ("MM+O+NR", "L"),              # Disagg: aggregate pair separator
 }
 
 def _recap_html(df, signed=False, change_table=False, scroll=False, signed_groups=None,
@@ -1781,62 +1781,62 @@ def _build_recap_df(d, report):
     cols = {}
 
     if report == "CIT":
-        for src, dst in [("Spec Long","Large Long"),("Spec Short","Large Short"),
-                         ("Non Rep Long","Small Long"),("Non Rep Short","Small Short")]:
+        for src, dst in [("Spec Long","Lg L"),("Spec Short","Lg S"),
+                         ("Non Rep Long","Sm L"),("Non Rep Short","Sm S")]:
             if src in d.columns: cols[("Gross Positions", dst)] = gc(src) / 1000
-        cols[("Gross Positions", "L+S Long")]    = (gc("Spec Long") + gc("Non Rep Long"))  / 1000
-        cols[("Gross Positions", "L+S Short")]   = (gc("Spec Short")+ gc("Non Rep Short")) / 1000
-        for src, dst in [("Index Long","Index Long"),("Index Short","Index Short")]:
+        cols[("Gross Positions", "LS L")]  = (gc("Spec Long") + gc("Non Rep Long"))  / 1000
+        cols[("Gross Positions", "LS S")]  = (gc("Spec Short")+ gc("Non Rep Short")) / 1000
+        for src, dst in [("Index Long","Idx L"),("Index Short","Idx S")]:
             if src in d.columns: cols[("Gross Positions", dst)] = gc(src) / 1000
-        cols[("Gross Positions", "L+S+I Long")]  = (gc("Spec Long") + gc("Non Rep Long")  + gc("Index Long"))  / 1000
-        cols[("Gross Positions", "L+S+I Short")] = (gc("Spec Short")+ gc("Non Rep Short") + gc("Index Short")) / 1000
-        for src, dst in [("Comm Long","Comm Long"),("Comm Short","Comm Short")]:
+        cols[("Gross Positions", "LSI L")] = (gc("Spec Long") + gc("Non Rep Long")  + gc("Index Long"))  / 1000
+        cols[("Gross Positions", "LSI S")] = (gc("Spec Short")+ gc("Non Rep Short") + gc("Index Short")) / 1000
+        for src, dst in [("Comm Long","Cm L"),("Comm Short","Cm S")]:
             if src in d.columns: cols[("Gross Positions", dst)] = gc(src) / 1000
 
-        cols[("NET", "Large")]        = gc("Spec Net")   / 1000
-        cols[("NET", "Small")]        = gc("Non Rep Net") / 1000
-        cols[("NET", "Index")]        = gc("Index Net")   / 1000
-        cols[("NET", "Comm")]         = gc("Comm Net")    / 1000
-        cols[("NET", "Large+Small")]  = (gc("Spec Net") + gc("Non Rep Net")) / 1000
-        cols[("NET", "Lrg+Sml+Idx")] = (gc("Spec Net") + gc("Non Rep Net") + gc("Index Net")) / 1000
+        cols[("NET", "Lg")]  = gc("Spec Net")   / 1000
+        cols[("NET", "Sm")]  = gc("Non Rep Net") / 1000
+        cols[("NET", "Idx")] = gc("Index Net")   / 1000
+        cols[("NET", "Cm")]  = gc("Comm Net")    / 1000
+        cols[("NET", "L+S")] = (gc("Spec Net") + gc("Non Rep Net")) / 1000
+        cols[("NET", "LSI")] = (gc("Spec Net") + gc("Non Rep Net") + gc("Index Net")) / 1000
 
         if "Spec Spread" in d.columns:
-            cols[("SPREAD", "Spec Spread")] = gc("Spec Spread") / 1000
+            cols[("SPREAD", "Sprd")] = gc("Spec Spread") / 1000
 
-        cols[("OI", "Total OI")] = gc("Total OI") / 1000
+        cols[("OI", "OI")] = gc("Total OI") / 1000
 
     else:  # Disagg
         for src, dst in [
-            ("MM Long",       "MM Long"),    ("MM Short",       "MM Short"),
-            ("Other Long",    "Other Long"), ("Other Short",    "Other Short"),
-            ("Non Rep Long",  "Non-Rep Long"),("Non Rep Short", "Non-Rep Short"),
-            ("Swap Long",     "Swap Long"),  ("Swap Short",     "Swap Short"),
-            ("Producer Long", "Comm Long"),  ("Producer Short", "Comm Short"),
+            ("MM Long",       "MM L"),  ("MM Short",       "MM S"),
+            ("Other Long",    "Oth L"), ("Other Short",    "Oth S"),
+            ("Non Rep Long",  "NR L"),  ("Non Rep Short",  "NR S"),
+            ("Swap Long",     "Sw L"),  ("Swap Short",     "Sw S"),
+            ("Producer Long", "Cm L"),  ("Producer Short", "Cm S"),
         ]:
             if src in d.columns:
                 cols[("Gross Positions", dst)] = gc(src) / 1000
 
-        cols[("MM+O+NR", "Long")]  = (gc("MM Long")  + gc("Other Long")  + gc("Non Rep Long"))  / 1000
-        cols[("MM+O+NR", "Short")] = (gc("MM Short") + gc("Other Short") + gc("Non Rep Short")) / 1000
+        cols[("MM+O+NR", "L")]  = (gc("MM Long")  + gc("Other Long")  + gc("Non Rep Long"))  / 1000
+        cols[("MM+O+NR", "S")]  = (gc("MM Short") + gc("Other Short") + gc("Non Rep Short")) / 1000
 
-        cols[("NET", "MM")]      = gc("MM Net")   / 1000
-        cols[("NET", "Rest")]    = (gc("Other Net") + gc("Non Rep Net")) / 1000
-        cols[("NET", "MM+O+NR")] = (gc("MM Net") + gc("Other Net") + gc("Non Rep Net")) / 1000
-        cols[("NET", "Swap")]    = gc("Swap Net")  / 1000
-        cols[("NET", "Comm")]    = gc("Comm Net")  / 1000
+        cols[("NET", "MM")]    = gc("MM Net")   / 1000
+        cols[("NET", "Rest")]  = (gc("Other Net") + gc("Non Rep Net")) / 1000
+        cols[("NET", "MO+NR")] = (gc("MM Net") + gc("Other Net") + gc("Non Rep Net")) / 1000
+        cols[("NET", "Sw")]    = gc("Swap Net")  / 1000
+        cols[("NET", "Cm")]    = gc("Comm Net")  / 1000
 
         for src, dst in [
-            ("MM Spread",    "MM Spread"),
-            ("Other Spread", "Other Spread"),
-            ("Swap Spread",  "Swap Spread"),
+            ("MM Spread",    "MM"),
+            ("Other Spread", "Oth"),
+            ("Swap Spread",  "Sw"),
         ]:
             if src in d.columns:
                 cols[("SP", dst)] = gc(src) / 1000
 
-        cols[("OI", "Total OI")] = gc("Total OI") / 1000
+        cols[("OI", "OI")] = gc("Total OI") / 1000
 
     # Add Rollex Px level — diff in summary gives absolute price change
-    cols[("Rollex Px", "Level")] = gc("Px")
+    cols[("Rollex Px", "Lvl")] = gc("Px")
 
     body = pd.DataFrame(cols)
     body.index = pd.to_datetime(d["Date"])
@@ -1849,11 +1849,11 @@ def _build_recap_df(d, report):
         if len(body) >= 5:
             row_4w[c] = body.iloc[0][c] - body.iloc[4][c]
 
-    # Rollex Px Δ% 1w — body (newest first): pct_change(-1) = row vs the one after (older)
-    px_lvl = body[("Rollex Px", "Level")]
-    body[("Rollex Px", "Δ% 1w")] = px_lvl.pct_change(-1) * 100
+    # Rollex Px Δ%1w — body (newest first): pct_change(-1) = row vs the one after (older)
+    px_lvl = body[("Rollex Px", "Lvl")]
+    body[("Rollex Px", "Δ%1w")] = px_lvl.pct_change(-1) * 100
 
-    # Z-Score, Avg, Min, Max computed over full history (all columns incl. Δ% 1w)
+    # Z-Score, Avg, Min, Max computed over full history (all columns incl. Δ%1w)
     row_z, row_avg, row_min, row_max = {}, {}, {}, {}
     for c in body.columns:
         series = body[c].replace([np.inf, -np.inf], np.nan).dropna()
@@ -1870,12 +1870,12 @@ def _build_recap_df(d, report):
         columns=body.columns,
     )
 
-    # Override summary Δ% 1w with proper cumulative % change (not diff of pct)
-    summary[("Rollex Px", "Δ% 1w")] = np.nan
+    # Override summary Δ%1w with proper cumulative % change (not diff of pct)
+    summary[("Rollex Px", "Δ%1w")] = np.nan
     if len(px_lvl) >= 2 and px_lvl.iloc[1] != 0:
-        summary.loc["Δ 1w", ("Rollex Px", "Δ% 1w")] = (px_lvl.iloc[0] / px_lvl.iloc[1] - 1) * 100
+        summary.loc["Δ 1w", ("Rollex Px", "Δ%1w")] = (px_lvl.iloc[0] / px_lvl.iloc[1] - 1) * 100
     if len(px_lvl) >= 5 and px_lvl.iloc[4] != 0:
-        summary.loc["Δ 1m", ("Rollex Px", "Δ% 1w")] = (px_lvl.iloc[0] / px_lvl.iloc[4] - 1) * 100
+        summary.loc["Δ 1m", ("Rollex Px", "Δ%1w")] = (px_lvl.iloc[0] / px_lvl.iloc[4] - 1) * 100
 
     body.index = [f"{dt.day}-{dt.strftime('%b-%y')}" for dt in body.index]
     return summary, body
@@ -2125,7 +2125,7 @@ def render_recap(d, report, color, commodity="KC", is_options=False):
 
     view = body.iloc[:20]
 
-    _PX_PCT = {("Rollex Px", "Δ% 1w")}
+    _PX_PCT = {("Rollex Px", "Δ%1w")}
 
     with st.expander("Change summary  ·  k lots", expanded=True):
         st.markdown(_recap_html(summary,
