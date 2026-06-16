@@ -1166,17 +1166,31 @@ def _on_seasonal_wide(d_crops):
     if common.empty: return pd.DataFrame()
     old, other = old.loc[common], other.loc[common]
     oi_sum = old["Total OI"] + other["Total OI"]
+    def _col(df, name):
+        return df[name] if name in df.columns else pd.Series(np.nan, index=df.index)
+
     wide = pd.DataFrame({
-        "OI Old %":       old["Total OI"] / oi_sum * 100,
-        "MM Net Old":     old["MM Net"],     "MM Net New":   other["MM Net"],
-        "MM Long Old":    old["MM Long"],    "MM Long New":  other["MM Long"],
-        "MM Short Old":   old["MM Short"],   "MM Short New": other["MM Short"],
-        "MM Diff":        old["MM Net"] - other["MM Net"],
-        "Comm Net Old":   old["Comm Net"],   "Comm Net New": other["Comm Net"],
-        "Comm Long Old":  old["Producer Long"]  if "Producer Long"  in old.columns else pd.Series(dtype=float),
-        "Comm Long New":  other["Producer Long"] if "Producer Long"  in other.columns else pd.Series(dtype=float),
-        "Comm Short Old": old["Producer Short"] if "Producer Short" in old.columns else pd.Series(dtype=float),
-        "Comm Short New": other["Producer Short"] if "Producer Short" in other.columns else pd.Series(dtype=float),
+        "OI Old %":         old["Total OI"] / oi_sum * 100,
+        # Managed Money
+        "MM Net Old":       old["MM Net"],       "MM Net New":       other["MM Net"],
+        "MM Long Old":      old["MM Long"],       "MM Long New":      other["MM Long"],
+        "MM Short Old":     old["MM Short"],      "MM Short New":     other["MM Short"],
+        "MM Diff":          old["MM Net"] - other["MM Net"],
+        # Commercial
+        "Comm Net Old":     _col(old, "Comm Net"),    "Comm Net New":     _col(other, "Comm Net"),
+        "Comm Long Old":    _col(old, "Producer Long"),  "Comm Long New":    _col(other, "Producer Long"),
+        "Comm Short Old":   _col(old, "Producer Short"), "Comm Short New":   _col(other, "Producer Short"),
+        "Comm Diff":        _col(old, "Comm Net") - _col(other, "Comm Net"),
+        # Swap Dealers
+        "Swap Net Old":     _col(old, "Swap Net"),    "Swap Net New":     _col(other, "Swap Net"),
+        "Swap Long Old":    _col(old, "Swap Long"),   "Swap Long New":    _col(other, "Swap Long"),
+        "Swap Short Old":   _col(old, "Swap Short"),  "Swap Short New":   _col(other, "Swap Short"),
+        "Swap Diff":        _col(old, "Swap Net") - _col(other, "Swap Net"),
+        # Other Reportables
+        "Other Net Old":    _col(old, "Other Net"),   "Other Net New":    _col(other, "Other Net"),
+        "Other Long Old":   _col(old, "Other Long"),  "Other Long New":   _col(other, "Other Long"),
+        "Other Short Old":  _col(old, "Other Short"), "Other Short New":  _col(other, "Other Short"),
+        "Other Diff":       _col(old, "Other Net") - _col(other, "Other Net"),
         "Week": pd.Series(common.isocalendar().week.astype(int).values, index=common),
         "Year": pd.Series(common.year, index=common),
     }, index=common)
@@ -1366,15 +1380,46 @@ def render_old_new(d_crops, color, commodity=""):
             st.markdown("<div style='font-size:.75rem;font-weight:700;color:#374151;"
                         "margin:14px 0 6px;letter-spacing:.04em'>COMMERCIAL</div>",
                         unsafe_allow_html=True)
-            cm1, cm2, _ = st.columns(3)
-            with cm1: st.plotly_chart(_sc("Comm Net Old",   "Comm Net (Old)  ·  k lots"),   width='stretch')
-            with cm2: st.plotly_chart(_sc("Comm Net New",   "Comm Net (New)  ·  k lots"),   width='stretch')
-            cm3, cm4, _ = st.columns(3)
-            with cm3: st.plotly_chart(_sc("Comm Long Old",  "Comm Long (Old)  ·  k lots"),  width='stretch')
-            with cm4: st.plotly_chart(_sc("Comm Long New",  "Comm Long (New)  ·  k lots"),  width='stretch')
-            cm5, cm6, _ = st.columns(3)
-            with cm5: st.plotly_chart(_sc("Comm Short Old", "Comm Short (Old)  ·  k lots"), width='stretch')
-            with cm6: st.plotly_chart(_sc("Comm Short New", "Comm Short (New)  ·  k lots"), width='stretch')
+            cm1, cm2, cm3 = st.columns(3)
+            with cm1: st.plotly_chart(_sc("Comm Net Old",   "Comm Net (Old)  ·  k lots"),           width='stretch')
+            with cm2: st.plotly_chart(_sc("Comm Net New",   "Comm Net (New)  ·  k lots"),           width='stretch')
+            with cm3: st.plotly_chart(_sc("Comm Diff",      "Comm Net (Old − New)  ·  k lots"),     width='stretch')
+            cm4, cm5, _ = st.columns(3)
+            with cm4: st.plotly_chart(_sc("Comm Long Old",  "Comm Long (Old)  ·  k lots"),          width='stretch')
+            with cm5: st.plotly_chart(_sc("Comm Long New",  "Comm Long (New)  ·  k lots"),          width='stretch')
+            cm6, cm7, _ = st.columns(3)
+            with cm6: st.plotly_chart(_sc("Comm Short Old", "Comm Short (Old)  ·  k lots"),         width='stretch')
+            with cm7: st.plotly_chart(_sc("Comm Short New", "Comm Short (New)  ·  k lots"),         width='stretch')
+
+            # ── Swap Dealers ──────────────────────────────────────────────────
+            st.markdown("<div style='font-size:.75rem;font-weight:700;color:#374151;"
+                        "margin:14px 0 6px;letter-spacing:.04em'>SWAP DEALERS</div>",
+                        unsafe_allow_html=True)
+            sw1, sw2, sw3 = st.columns(3)
+            with sw1: st.plotly_chart(_sc("Swap Net Old",   "Swap Net (Old)  ·  k lots"),           width='stretch')
+            with sw2: st.plotly_chart(_sc("Swap Net New",   "Swap Net (New)  ·  k lots"),           width='stretch')
+            with sw3: st.plotly_chart(_sc("Swap Diff",      "Swap Net (Old − New)  ·  k lots"),     width='stretch')
+            sw4, sw5, _ = st.columns(3)
+            with sw4: st.plotly_chart(_sc("Swap Long Old",  "Swap Long (Old)  ·  k lots"),          width='stretch')
+            with sw5: st.plotly_chart(_sc("Swap Long New",  "Swap Long (New)  ·  k lots"),          width='stretch')
+            sw6, sw7, _ = st.columns(3)
+            with sw6: st.plotly_chart(_sc("Swap Short Old", "Swap Short (Old)  ·  k lots"),         width='stretch')
+            with sw7: st.plotly_chart(_sc("Swap Short New", "Swap Short (New)  ·  k lots"),         width='stretch')
+
+            # ── Other Reportables ─────────────────────────────────────────────
+            st.markdown("<div style='font-size:.75rem;font-weight:700;color:#374151;"
+                        "margin:14px 0 6px;letter-spacing:.04em'>OTHER REPORTABLES</div>",
+                        unsafe_allow_html=True)
+            or1, or2, or3 = st.columns(3)
+            with or1: st.plotly_chart(_sc("Other Net Old",   "Other Net (Old)  ·  k lots"),         width='stretch')
+            with or2: st.plotly_chart(_sc("Other Net New",   "Other Net (New)  ·  k lots"),         width='stretch')
+            with or3: st.plotly_chart(_sc("Other Diff",      "Other Net (Old − New)  ·  k lots"),   width='stretch')
+            or4, or5, _ = st.columns(3)
+            with or4: st.plotly_chart(_sc("Other Long Old",  "Other Long (Old)  ·  k lots"),        width='stretch')
+            with or5: st.plotly_chart(_sc("Other Long New",  "Other Long (New)  ·  k lots"),        width='stretch')
+            or6, or7, _ = st.columns(3)
+            with or6: st.plotly_chart(_sc("Other Short Old", "Other Short (Old)  ·  k lots"),       width='stretch')
+            with or7: st.plotly_chart(_sc("Other Short New", "Other Short (New)  ·  k lots"),       width='stretch')
 
             # ── Open Interest ─────────────────────────────────────────────────
             st.markdown("<div style='font-size:.75rem;font-weight:700;color:#374151;"
