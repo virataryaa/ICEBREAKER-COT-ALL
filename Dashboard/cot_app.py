@@ -3889,7 +3889,14 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("<div style='font-size:.78rem;font-weight:600;color:#444;"
                 "margin-bottom:6px'>Date range</div>", unsafe_allow_html=True)
-    _max_date = pd.read_parquet(CIT_FILE, columns=["Date"])["Date"].max().date()
+    if is_combined:
+        _max_date = load_cit()["Date"].max().date()
+    elif report == "CIT":
+        _cit_df = load_cit()
+        _max_date = _cit_df.loc[_cit_df["Commodity"] == commodity, "Date"].max().date()
+    else:
+        _dag_df = load_disagg("F&O")
+        _max_date = _dag_df.loc[_dag_df["Commodity"] == commodity, "Date"].max().date()
     start_date = st.date_input("From", value=datetime.date(2020,1,1),
                                min_value=datetime.date(2010,1,1), max_value=_max_date, key="dt_from")
     end_date   = st.date_input("To",   value=_max_date,
