@@ -3897,10 +3897,13 @@ with st.sidebar:
     else:
         _dag_df = load_disagg("F&O")
         _max_date = _dag_df.loc[_dag_df["Commodity"] == commodity, "Date"].max().date()
+    _date_key_suffix = f"{commodity}_{report}"
     start_date = st.date_input("From", value=datetime.date(2020,1,1),
-                               min_value=datetime.date(2010,1,1), max_value=_max_date, key="dt_from")
+                               min_value=datetime.date(2010,1,1), max_value=_max_date,
+                               key=f"dt_from_{_date_key_suffix}")
     end_date   = st.date_input("To",   value=_max_date,
-                               min_value=datetime.date(2010,1,1), max_value=_max_date, key="dt_to")
+                               min_value=datetime.date(2010,1,1), max_value=_max_date,
+                               key=f"dt_to_{_date_key_suffix}")
 
 
 
