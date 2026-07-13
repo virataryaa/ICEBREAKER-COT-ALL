@@ -174,6 +174,13 @@ def load_cit() -> pd.DataFrame:
             df.get(f"Index {side}", 0)
         )
     df["Combined Spec Net"] = df["Combined Spec Long"] - df["Combined Spec Short"]
+    # Large Spec + Non-Rep (excl. Index)
+    for side in ("Long","Short"):
+        df[f"Spec+NonRep {side}"] = (
+            df.get(f"Spec {side}", 0) +
+            df.get(f"Non Rep {side}", 0)
+        )
+    df["Spec+NonRep Net"] = df["Spec+NonRep Long"] - df["Spec+NonRep Short"]
     df = _add_pct(df)
     return df.sort_values(["Commodity","Date"]).reset_index(drop=True)
 
@@ -194,6 +201,14 @@ def load_disagg(version: str) -> pd.DataFrame:
             df.get(f"Swap {side}", 0)
         )
     df["Combined Spec Net"] = df["Combined Spec Long"] - df["Combined Spec Short"]
+    # MM + Other + Non-Rep (excl. Swap)
+    for side in ("Long","Short"):
+        df[f"MM+Other+NonRep {side}"] = (
+            df.get(f"MM {side}", 0) +
+            df.get(f"Other {side}", 0) +
+            df.get(f"Non Rep {side}", 0)
+        )
+    df["MM+Other+NonRep Net"] = df["MM+Other+NonRep Long"] - df["MM+Other+NonRep Short"]
     df = _add_pct(df)
     return df.sort_values(["Commodity","Crop","Date"]).reset_index(drop=True)
 
@@ -219,6 +234,10 @@ def load_options_only() -> pd.DataFrame:
             df.get(f"MM {side}", 0) + df.get(f"Other {side}", 0) +
             df.get(f"Non Rep {side}", 0) + df.get(f"Swap {side}", 0))
     df["Combined Spec Net"] = df["Combined Spec Long"] - df["Combined Spec Short"]
+    for side in ("Long","Short"):
+        df[f"MM+Other+NonRep {side}"] = (
+            df.get(f"MM {side}", 0) + df.get(f"Other {side}", 0) + df.get(f"Non Rep {side}", 0))
+    df["MM+Other+NonRep Net"] = df["MM+Other+NonRep Long"] - df["MM+Other+NonRep Short"]
     df = _add_pct(df)
     # Trader counts and concentration % are not valid for options-only
     # (trader overlap between fut/options means subtraction gives wrong counts;
@@ -698,6 +717,7 @@ CIT_SPEC = {
     "Large Spec":    {"long":"Spec Long",    "short":"Spec Short",    "net":"Spec Net",    "spread":None},
     "Non-Rep":       {"long":"Non Rep Long", "short":"Non Rep Short", "net":"Non Rep Net", "spread":None},
     "Index Traders": {"long":"Index Long",   "short":"Index Short",   "net":"Index Net",   "spread":None},
+    "Large Spec + Non-Rep": {"long":"Spec+NonRep Long","short":"Spec+NonRep Short","net":"Spec+NonRep Net","spread":None},
     "Large Spec + Index + Non-Rep": {"long":"Combined Spec Long","short":"Combined Spec Short","net":"Combined Spec Net","spread":None},
 }
 DISAGG_SPEC = {
@@ -705,6 +725,7 @@ DISAGG_SPEC = {
     "Other Rept":                 {"long":"Other Long", "short":"Other Short", "net":"Other Net", "spread":"Other Spread"},
     "Non-Rep":                    {"long":"Non Rep Long","short":"Non Rep Short","net":"Non Rep Net","spread":None},
     "Swap Dealers":               {"long":"Swap Long",  "short":"Swap Short",  "net":"Swap Net",  "spread":"Swap Spread"},
+    "MM + Other + Non-Rep":       {"long":"MM+Other+NonRep Long","short":"MM+Other+NonRep Short","net":"MM+Other+NonRep Net","spread":None},
     "MM + Other + Non-Rep + Swap":{"long":"Combined Spec Long","short":"Combined Spec Short","net":"Combined Spec Net","spread":None},
 }
 
@@ -3243,6 +3264,9 @@ def render_combined(commodity, start_date, end_date, color):
     merged["Rel Spec"]      = merged["Net_a"]   - merged["Net_b"]
     merged["Comb CommL"]    = merged["CommL_a"] + merged["CommL_b"]
     merged["Comb CommS"]    = merged["CommS_a"] + merged["CommS_b"]
+    merged["CommNet_a"]     = merged["CommL_a"] - merged["CommS_a"]
+    merged["CommNet_b"]     = merged["CommL_b"] - merged["CommS_b"]
+    merged["Comb CommNet"]  = merged["CommNet_a"] + merged["CommNet_b"]
 
     # ── Header ────────────────────────────────────────────────────────────────
     st.markdown(
@@ -3262,7 +3286,8 @@ def render_combined(commodity, start_date, end_date, color):
 
     # ── Tab 0: Recap ──────────────────────────────────────────────────────────
     with c_tabs[0]:
-        _clabel(f"Net / Long / Short = ({_spec_a}) + ({_spec_b})")
+        _clabel(f"Spec Net / Long / Short = ({_spec_a}) + ({_spec_b})")
+        _clabel(f"Commercial Net / Long / Short = ({_comm_a}) + ({_comm_b})")
         col_map = {
             (f"{comm_a} Net", "Net"):    merged["Net_a"].values,
             (f"{comm_b} Net", "Net"):    merged["Net_b"].values,
@@ -3273,6 +3298,15 @@ def render_combined(commodity, start_date, end_date, color):
             (f"{comm_b} Gross","Short"): merged["Short_b"].values,
             ("Combined",      "Long"):   merged["Comb Long"].values,
             ("Combined",      "Short"):  merged["Comb Short"].values,
+            (f"{comm_a} Commercial", "Net"):   merged["CommNet_a"].values,
+            (f"{comm_b} Commercial", "Net"):   merged["CommNet_b"].values,
+            ("Combined Commercial",  "Net"):   merged["Comb CommNet"].values,
+            (f"{comm_a} Commercial", "Long"):  merged["CommL_a"].values,
+            (f"{comm_a} Commercial", "Short"): merged["CommS_a"].values,
+            (f"{comm_b} Commercial", "Long"):  merged["CommL_b"].values,
+            (f"{comm_b} Commercial", "Short"): merged["CommS_b"].values,
+            ("Combined Commercial",  "Long"):  merged["Comb CommL"].values,
+            ("Combined Commercial",  "Short"): merged["Comb CommS"].values,
         }
         body_df = pd.DataFrame(col_map, index=merged["Date"])
         body_df.columns = pd.MultiIndex.from_tuples(body_df.columns)
@@ -4082,9 +4116,9 @@ def render_recap_charts(d, report, color, commodity):
         # Col 1 — Net positioning
         with c1:
             st.plotly_chart(_line(
-                "MM Net & Swap Net k lots",
-                {"MM Net": mm_net / 1000, "Swap Net": swap_net / 1000},
-                [C_NET, C_LONG]
+                "MM Net & Swap Net & Other Net k lots",
+                {"MM Net": mm_net / 1000, "Swap Net": swap_net / 1000, "Other Net": gc("Other Net") / 1000},
+                [C_NET, C_LONG, "#f59e0b"]
             ), width='stretch')
 
         # Col 2 — MM gross k lots
@@ -4116,8 +4150,9 @@ def render_recap_charts(d, report, color, commodity):
         with c5:
             st.plotly_chart(_line(
                 "# of Traders",
-                {"MM Long": gc("Traders MM Long"), "MM Short": gc("Traders MM Short")},
-                [C_LONG, C_SHORT]
+                {"MM Long": gc("Traders MM Long"), "MM Short": gc("Traders MM Short"),
+                 "Other Long": gc("Traders Other Long"), "Other Short": gc("Traders Other Short")},
+                [C_LONG, C_SHORT, "#f59e0b", "#7c3aed"]
             ), width='stretch')
 
         # Col 2 bottom — Commercial gross k lots
@@ -4289,17 +4324,19 @@ def render_spec_var(commodity: str, df_cot: pd.DataFrame, report: str, color: st
     # ── build predefined combination columns ─────────────────────────────────
     df_c = df_cot.copy()
     if report == "CIT":
-        if "Spec Net" in df_c.columns and "Non Rep Net" in df_c.columns:
-            df_c["Spec + Non Rep Net"] = df_c["Spec Net"] + df_c["Non Rep Net"].fillna(0)
-        if "Spec + Non Rep Net" in df_c.columns and "Index Net" in df_c.columns:
-            df_c["Spec + Non Rep + Index Net"] = df_c["Spec + Non Rep Net"] + df_c["Index Net"].fillna(0)
+        for side in ("Long", "Short", "Net"):
+            if f"Spec {side}" in df_c.columns and f"Non Rep {side}" in df_c.columns:
+                df_c[f"Spec + Non Rep {side}"] = df_c[f"Spec {side}"] + df_c[f"Non Rep {side}"].fillna(0)
+            if f"Spec + Non Rep {side}" in df_c.columns and f"Index {side}" in df_c.columns:
+                df_c[f"Spec + Non Rep + Index {side}"] = df_c[f"Spec + Non Rep {side}"] + df_c[f"Index {side}"].fillna(0)
         spec_opts = [c for c in ["Spec Net", "Spec + Non Rep Net", "Spec + Non Rep + Index Net"]
                      if c in df_c.columns]
     else:
-        if "MM Net" in df_c.columns and "Non Rep Net" in df_c.columns:
-            df_c["MM + Non Rep Net"] = df_c["MM Net"] + df_c["Non Rep Net"].fillna(0)
-        if "MM + Non Rep Net" in df_c.columns and "Other Net" in df_c.columns:
-            df_c["MM + Non Rep + Other Net"] = df_c["MM + Non Rep Net"] + df_c["Other Net"].fillna(0)
+        for side in ("Long", "Short", "Net"):
+            if f"MM {side}" in df_c.columns and f"Non Rep {side}" in df_c.columns:
+                df_c[f"MM + Non Rep {side}"] = df_c[f"MM {side}"] + df_c[f"Non Rep {side}"].fillna(0)
+            if f"MM + Non Rep {side}" in df_c.columns and f"Other {side}" in df_c.columns:
+                df_c[f"MM + Non Rep + Other {side}"] = df_c[f"MM + Non Rep {side}"] + df_c[f"Other {side}"].fillna(0)
         spec_opts = [c for c in ["MM Net", "MM + Non Rep Net", "MM + Non Rep + Other Net"]
                      if c in df_c.columns]
     if not spec_opts:
