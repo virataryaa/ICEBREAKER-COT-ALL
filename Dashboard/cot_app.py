@@ -4036,14 +4036,13 @@ def render_recap_charts(d, report, color, commodity):
             ))
         return fig
 
-    if report == "CIT":
-        c1, c2, c3, c4 = st.columns(4)
-        c5, c6, c7, c8 = st.columns(4)
-    else:
-        c1, c2, c3   = st.columns(3)
-        c4, c5, c6   = st.columns(3)
-        c7, c8, c9   = st.columns(3)
-        c10, c11, c12 = st.columns(3)
+    # Same column shape for both report types (3 cols x 4 rows) so Streamlit's
+    # layout tree stays consistent across reruns when toggling CIT/Disagg —
+    # mismatched container shapes cause stale charts to flash during rerender.
+    c1, c2, c3    = st.columns(3)
+    c4, c5, c6    = st.columns(3)
+    c7, c8, c9    = st.columns(3)
+    c10, c11, c12 = st.columns(3)
 
     if report == "CIT":
         spec_net  = gc("Spec Net")
