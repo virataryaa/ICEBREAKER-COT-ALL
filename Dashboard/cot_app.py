@@ -4036,10 +4036,14 @@ def render_recap_charts(d, report, color, commodity):
             ))
         return fig
 
-    c1, c2, c3, c4 = st.columns(4)
-    c5, c6, c7, c8 = st.columns(4)
-    if report != "CIT":
-        c9, c10, c11, c12 = st.columns(4)
+    if report == "CIT":
+        c1, c2, c3, c4 = st.columns(4)
+        c5, c6, c7, c8 = st.columns(4)
+    else:
+        c1, c2, c3   = st.columns(3)
+        c4, c5, c6   = st.columns(3)
+        c7, c8, c9   = st.columns(3)
+        c10, c11, c12 = st.columns(3)
 
     if report == "CIT":
         spec_net  = gc("Spec Net")
@@ -4115,24 +4119,15 @@ def render_recap_charts(d, report, color, commodity):
         mm_net   = gc("MM Net")
         swap_net = gc("Swap Net")
 
-        # Col 1 — Net positioning
+        # Row 1 — MM
         with c1:
-            st.plotly_chart(_line(
-                "MM Net & Swap Net & Other Net k lots",
-                {"MM Net": mm_net / 1000, "Swap Net": swap_net / 1000, "Other Net": gc("Other Net") / 1000},
-                [C_NET, C_LONG, "#f59e0b"]
-            ), width='stretch')
-
-        # Col 2 — MM gross k lots
-        with c2:
             st.plotly_chart(_line(
                 "MM Gross k lots",
                 {"MM Long": gc("MM Long") / 1000, "MM Short": gc("MM Short") / 1000},
                 [C_LONG, C_SHORT]
             ), width='stretch')
 
-        # Col 3 — MM gross % of OI
-        with c3:
+        with c2:
             st.plotly_chart(_line(
                 "MM Gross % of OI",
                 {"MM Long %":  gc("MM Long")  / oi * 100,
@@ -4140,33 +4135,22 @@ def render_recap_charts(d, report, color, commodity):
                 [C_LONG, C_SHORT]
             ), width='stretch')
 
-        # Col 4 — MM nominal M USD (gross)
-        with c4:
+        with c3:
             st.plotly_chart(_line(
                 f"MM Nominal M {ccy}",
                 {"MM Long": gc("MM Long") * mult, "MM Short": gc("MM Short") * mult},
                 [C_LONG, C_SHORT]
             ), width='stretch')
 
-        # Col 1 bottom — # of Traders
-        with c5:
+        # Row 2 — Commercial
+        with c4:
             st.plotly_chart(_line(
-                "# of Traders",
-                {"MM Long": gc("Traders MM Long"), "MM Short": gc("Traders MM Short"),
-                 "Other Long": gc("Traders Other Long"), "Other Short": gc("Traders Other Short")},
-                [C_LONG, C_SHORT, "#f59e0b", "#7c3aed"]
-            ), width='stretch')
-
-        # Col 2 bottom — Commercial gross k lots
-        with c6:
-            st.plotly_chart(_line(
-                "Commercial k lots",
+                "Commercial Gross k lots",
                 {"Prod Long": gc("Producer Long") / 1000, "Prod Short": gc("Producer Short") / 1000},
                 [C_LONG, C_SHORT]
             ), width='stretch')
 
-        # Col 3 bottom — Commercial % of OI
-        with c7:
+        with c5:
             st.plotly_chart(_line(
                 "Commercial Gross % of OI",
                 {"Prod Long %":  gc("Producer Long")  / oi * 100,
@@ -4174,32 +4158,22 @@ def render_recap_charts(d, report, color, commodity):
                 [C_LONG, C_SHORT]
             ), width='stretch')
 
-        # Col 4 bottom — Commercial nominal M USD
-        with c8:
+        with c6:
             st.plotly_chart(_line(
                 f"Commercial Nominal M {ccy}",
                 {"Prod Long": gc("Producer Long") * mult, "Prod Short": gc("Producer Short") * mult},
                 [C_LONG, C_SHORT]
             ), width='stretch')
 
-        # Col 1 row 3 — Other Reportables spread k lots
-        with c9:
-            st.plotly_chart(_line(
-                "Other Spread k lots",
-                {"Other Spread": gc("Other Spread") / 1000},
-                ["#f59e0b"]
-            ), width='stretch')
-
-        # Col 2 row 3 — Other Reportables gross k lots
-        with c10:
+        # Row 3 — Other Reportables
+        with c7:
             st.plotly_chart(_line(
                 "Other Gross k lots",
                 {"Other Long": gc("Other Long") / 1000, "Other Short": gc("Other Short") / 1000},
                 [C_LONG, C_SHORT]
             ), width='stretch')
 
-        # Col 3 row 3 — Other Reportables gross % of OI
-        with c11:
+        with c8:
             st.plotly_chart(_line(
                 "Other Gross % of OI",
                 {"Other Long %":  gc("Other Long")  / oi * 100,
@@ -4207,12 +4181,34 @@ def render_recap_charts(d, report, color, commodity):
                 [C_LONG, C_SHORT]
             ), width='stretch')
 
-        # Col 4 row 3 — Other Reportables nominal M USD
-        with c12:
+        with c9:
             st.plotly_chart(_line(
                 f"Other Nominal M {ccy}",
                 {"Other Long": gc("Other Long") * mult, "Other Short": gc("Other Short") * mult},
                 [C_LONG, C_SHORT]
+            ), width='stretch')
+
+        # Row 4 — Cross-category
+        with c10:
+            st.plotly_chart(_line(
+                "MM Net & Swap Net & Other Net k lots",
+                {"MM Net": mm_net / 1000, "Swap Net": swap_net / 1000, "Other Net": gc("Other Net") / 1000},
+                [C_NET, C_LONG, "#f59e0b"]
+            ), width='stretch')
+
+        with c11:
+            st.plotly_chart(_line(
+                "# of Traders",
+                {"MM Long": gc("Traders MM Long"), "MM Short": gc("Traders MM Short"),
+                 "Other Long": gc("Traders Other Long"), "Other Short": gc("Traders Other Short")},
+                [C_LONG, C_SHORT, "#f59e0b", "#7c3aed"]
+            ), width='stretch')
+
+        with c12:
+            st.plotly_chart(_line(
+                "Other Spread k lots",
+                {"Other Spread": gc("Other Spread") / 1000},
+                ["#f59e0b"]
             ), width='stretch')
 
     # ── Roll Yield vs Positioning ──────────────────────────────────────────────
