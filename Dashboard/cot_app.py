@@ -3408,6 +3408,15 @@ def render_combined(commodity, start_date, end_date, color):
                 ("Combined Net",   merged["Comb Net"], color,   "solid",2.4, True,  "y"),
             ])
 
+        # 2b. Combined Gross Spec Legs
+        _clabel(f"Combined Gross Spec = ({_spec_a}) + ({_spec_b})  ·  Long / Short")
+        _cline(
+            f"{COMM_NAMES[commodity]}  ·  Combined Gross Spec Legs  ·  k lots",
+            [
+                ("Combined Spec Long",  merged["Comb Long"],  C_LONG,  "solid", 2.2, False, "y"),
+                ("Combined Spec Short", merged["Comb Short"], C_SHORT, "solid", 2.2, False, "y"),
+            ])
+
         # 3. Combined Net + Index
         _clabel(f"Combined Net + Index = ({_spec_a}) + ({_spec_b}) + {_idx_a}")
         _cline(
@@ -3463,21 +3472,33 @@ def render_combined(commodity, start_date, end_date, color):
             fill="tozeroy", fillcolor=f"rgba({r},{g},{b_c},0.09)",
             line=dict(color=color, width=2.4),
             hovertemplate="<b>%{x|%d %b %Y}</b><br>Combined: %{y:.1f}k<extra></extra>"))
-        for px_col, px_lbl, px_clr in [("Px_a", f"{comm_a} Px", color_a), ("Px_b", f"{comm_b} Px", color_b)]:
-            if px_col in merged.columns:
-                fig.add_trace(go.Scatter(x=merged["Date"], y=merged[px_col], name=px_lbl,
-                    line=dict(color=px_clr, width=1.2, dash="longdash"), yaxis="y2",
-                    hovertemplate=f"<b>%{{x|%d %b %Y}}</b><br>{px_lbl}: %{{y:.2f}}<extra></extra>"))
         fig.add_hline(y=0, line_width=1, line_color="rgba(0,0,0,0.15)")
         fig.update_layout(**_BASE, height=420,
             title=dict(text=f"{COMM_NAMES[commodity]}  ·  Combined Spec Net  ·  k lots",
                        font=dict(size=12,color="#374151"), x=0),
-            margin=dict(l=52,r=60,t=44,b=72),
+            margin=dict(l=52,r=12,t=44,b=72),
             legend=dict(orientation="h",y=-0.2,x=0.5,xanchor="center",font_size=10,bgcolor="rgba(0,0,0,0)"),
             xaxis=dict(**_ax(x=True),tickformat="%d %b '%y"),
-            yaxis=dict(**_ax(),title_text="k lots",title_font_size=10),
-            yaxis2={**_ax(),"title_text":"Price","title_font_size":10,"overlaying":"y","side":"right","showgrid":False})
+            yaxis=dict(**_ax(),title_text="k lots",title_font_size=10))
         st.plotly_chart(fig, width='stretch')
+
+        # Combined Gross Spec Legs — Long / Short
+        _clabel(f"Combined Gross Spec = ({_spec_a}) + ({_spec_b})  ·  Long / Short")
+        fig_gross = go.Figure()
+        fig_gross.add_trace(go.Scatter(x=merged["Date"], y=merged["Comb Long"], name="Combined Spec Long",
+            line=dict(color=C_LONG, width=2.2),
+            hovertemplate="<b>%{x|%d %b %Y}</b><br>Combined Long: %{y:.1f}k<extra></extra>"))
+        fig_gross.add_trace(go.Scatter(x=merged["Date"], y=merged["Comb Short"], name="Combined Spec Short",
+            line=dict(color=C_SHORT, width=2.2),
+            hovertemplate="<b>%{x|%d %b %Y}</b><br>Combined Short: %{y:.1f}k<extra></extra>"))
+        fig_gross.update_layout(**_BASE, height=320,
+            title=dict(text=f"{COMM_NAMES[commodity]}  ·  Combined Gross Spec Legs  ·  k lots",
+                       font=dict(size=11,color="#374151"), x=0),
+            margin=dict(l=52,r=12,t=40,b=60),
+            legend=dict(orientation="h",y=-0.22,x=0.5,xanchor="center",font_size=10,bgcolor="rgba(0,0,0,0)"),
+            xaxis=dict(**_ax(x=True),tickformat="%d %b '%y"),
+            yaxis=dict(**_ax(),title_text="k lots",title_font_size=10))
+        st.plotly_chart(fig_gross, width='stretch')
 
         delta = merged["Comb Net"].diff().fillna(0)
         fig2 = go.Figure(go.Bar(x=merged["Date"], y=delta,
