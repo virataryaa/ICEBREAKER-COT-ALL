@@ -3122,6 +3122,8 @@ def render_analysis(d, report, color, commodity="KC"):
             ))
             _lo = float(min(dL_v.min(), dS_v.min()))
             _hi = float(max(dL_v.max(), dS_v.max()))
+            _pad = (_hi - _lo) * 0.04 or 1.0
+            _rng = [_lo - _pad, _hi + _pad]
             fig_map.add_shape(type="line", x0=0, x1=0, y0=_lo, y1=_hi,
                                line=dict(color="#9ca3af", width=1))
             fig_map.add_shape(type="line", x0=_lo, x1=_hi, y0=0, y1=0,
@@ -3132,8 +3134,8 @@ def render_analysis(d, report, color, commodity="KC"):
                 title=dict(text=f"{flow_pick}: Δ{long_col}  vs  Δ{short_col}  ·  coloured by price move",
                            font=dict(size=11, color="#374151"), x=0),
                 margin=dict(l=60, r=24, t=44, b=50),
-                xaxis=dict(**_ax(), title_text=f"Δ{long_col} (k lots)"),
-                yaxis=dict(**_ax(), title_text=f"Δ{short_col} (k lots)",
+                xaxis=dict(**_ax(), title_text=f"Δ{long_col} (k lots)", range=_rng),
+                yaxis=dict(**_ax(), title_text=f"Δ{short_col} (k lots)", range=_rng,
                            scaleanchor="x", scaleratio=1))
             st.plotly_chart(fig_map, width='stretch')
 
