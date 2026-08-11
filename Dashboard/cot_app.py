@@ -3146,6 +3146,126 @@ def render_analysis(d, report, color, commodity="KC"):
             fig_grid.update_annotations(font=dict(size=10, color="#374151"))
             st.plotly_chart(fig_grid, width='stretch')
 
+            # ── Long vs Short flow map — every week, no regime bucketing ────
+            st.markdown(
+                "<div style='font-size:.82rem;font-weight:700;color:#374151;"
+                "margin:20px 0 4px;letter-spacing:.02em'>"
+                "LONG vs SHORT FLOW MAP  ·  every week, no bucketing</div>"
+                "<p style='font-size:.7rem;color:#9ca3af;margin:0 0 10px'>"
+                "X = that week's ΔLong · Y = that week's ΔShort · colour = that week's price Δ%. "
+                "Bottom-right = longs adding + shorts covering (max bullish agreement) · "
+                "top-left = longs liquidating + shorts adding (max bearish agreement) · "
+                "the dotted diagonal is Δnet = 0.</p>",
+                unsafe_allow_html=True)
+
+            _clim = float(np.nanpercentile(np.abs(dPx_v), 95))
+            _clim = _clim if _clim > 0 else 1.0
+            fig_map = go.Figure(go.Scatter(
+                x=dL_v, y=dS_v, mode="markers",
+                marker=dict(
+                    color=dPx_v, colorscale=[[0, "#dc2626"], [0.5, "#f4f4f5"], [1, "#16a34a"]],
+                    cmin=-_clim, cmax=_clim, size=7, opacity=0.75,
+                    line=dict(width=0.4, color="white"),
+                    colorbar=dict(title=dict(text="Px Δ%", side="right"), thickness=12, len=0.75,
+                                  tickfont=dict(size=9))),
+                text=pd.to_datetime(dates_v).strftime("%d %b %Y"),
+                customdata=dPx_v,
+                hovertemplate="<b>%{text}</b><br>ΔLong: %{x:+.1f}k<br>ΔShort: %{y:+.1f}k<br>"
+                              "ΔPx%%: %{customdata:+.2f}%%<extra></extra>",
+            ))
+            _lo = float(min(dL_v.min(), dS_v.min()))
+            _hi = float(max(dL_v.max(), dS_v.max()))
+            fig_map.add_shape(type="line", x0=0, x1=0, y0=_lo, y1=_hi,
+                               line=dict(color="#9ca3af", width=1))
+            fig_map.add_shape(type="line", x0=_lo, x1=_hi, y0=0, y1=0,
+                               line=dict(color="#9ca3af", width=1))
+            fig_map.add_shape(type="line", x0=_lo, x1=_hi, y0=_lo, y1=_hi,
+                               line=dict(color="#9ca3af", width=1, dash="dot"))
+            fig_map.update_layout(**_BASE, height=460,
+                title=dict(text=f"{flow_pick}: Δ{long_col}  vs  Δ{short_col}  ·  coloured by price move",
+                           font=dict(size=11, color="#374151"), x=0),
+                margin=dict(l=60, r=24, t=44, b=50),
+                xaxis=dict(**_ax(), title_text=f"Δ{long_col} (k lots)"),
+                yaxis=dict(**_ax(), title_text=f"Δ{short_col} (k lots)"))
+            st.plotly_chart(fig_map, width='stretch')
+
+            # ── Two-leg regression: price impact per k-lot, long vs short ───
+            X2 = np.column_stack([dL_v, dS_v, np.ones_like(dL_v)])
+            coef2, _, rank2, _ = np.linalg.lstsq(X2, dPx_v, rcond=None)
+            beta_L, beta_S, alpha2 = coef2
+            y_hat2  = X2 @ coef2
+            ss_res2 = float(np.sum((dPx_v - y_hat2) ** 2))
+            ss_tot2 = float(np.sum((dPx_v - dPx_v.mean()) ** 2))
+            r2_2    = 1 - ss_res2 / ss_tot2 if ss_tot2 > 0 else 0
+
+            n2, k2 = X2.shape
+            dof2   = n2 - k2
+            se_L = se_S = p_L = p_S = t_diff = p_diff = np.nan
+            if dof2 > 0 and rank2 == k2:
+                try:
+                    sigma2  = ss_res2 / dof2
+                    XtX_inv = np.linalg.inv(X2.T @ X2)
+                    se_vec  = np.sqrt(np.diag(sigma2 * XtX_inv))
+                    se_L, se_S = se_vec[0], se_vec[1]
+                    p_L = float(2 * scipy_stats.t.sf(abs(beta_L / se_L), dof2)) if se_L > 0 else np.nan
+                    p_S = float(2 * scipy_stats.t.sf(abs(beta_S / se_S), dof2)) if se_S > 0 else np.nan
+                    # Joint test: H0: beta_L = -beta_S  (buying's per-lot impact
+                    # equals covering's per-lot impact, i.e. beta_L + beta_S = 0)
+                    cov_LS  = sigma2 * XtX_inv[0, 1]
+                    var_sum = se_L ** 2 + se_S ** 2 + 2 * cov_LS
+                    if var_sum > 0:
+                        t_diff = (beta_L + beta_S) / np.sqrt(var_sum)
+                        p_diff = float(2 * scipy_stats.t.sf(abs(t_diff), dof2))
+                except np.linalg.LinAlgError:
+                    pass
+
+            st.markdown(
+                "<div style='font-size:.82rem;font-weight:700;color:#374151;"
+                "margin:18px 0 4px;letter-spacing:.02em'>"
+                "PRICE IMPACT PER K-LOT  ·  buying vs covering, controlling for the other leg</div>"
+                "<p style='font-size:.7rem;color:#9ca3af;margin:0 0 10px'>"
+                "One regression, ΔPx% = β_long·ΔLong + β_short·ΔShort + α, fit across all weeks "
+                "at once — each coefficient is the marginal price effect of that leg, holding the "
+                "other leg constant.</p>",
+                unsafe_allow_html=True)
+
+            _cov_impact = -beta_S if pd.notna(beta_S) else np.nan
+            _mc1, _mc2, _mc3 = st.columns(3)
+            with _mc1:
+                st.markdown(
+                    f"<div style='font-size:.75rem;color:#374151'><b>Fresh buying</b><br>"
+                    f"{beta_L:+.3f}% per k-lot of ΔLong<br>"
+                    f"<span style='color:{'#16a34a' if pd.notna(p_L) and p_L < 0.05 else '#94a3b8'}'>"
+                    f"p = {p_L:.3f}{' (significant)' if pd.notna(p_L) and p_L < 0.05 else ''}</span></div>"
+                    if pd.notna(beta_L) else "<i>Not enough data</i>", unsafe_allow_html=True)
+            with _mc2:
+                st.markdown(
+                    f"<div style='font-size:.75rem;color:#374151'><b>Short covering</b><br>"
+                    f"{_cov_impact:+.3f}% per k-lot covered (−β_short)<br>"
+                    f"<span style='color:{'#16a34a' if pd.notna(p_S) and p_S < 0.05 else '#94a3b8'}'>"
+                    f"p = {p_S:.3f}{' (significant)' if pd.notna(p_S) and p_S < 0.05 else ''}</span></div>"
+                    if pd.notna(beta_S) else "<i>Not enough data</i>", unsafe_allow_html=True)
+            with _mc3:
+                if pd.notna(p_diff):
+                    _diff_verdict = ("Buying moves price more per lot" if beta_L > _cov_impact
+                                      else "Covering moves price more per lot")
+                    st.markdown(
+                        f"<div style='font-size:.75rem;color:#374151'><b>Buying vs Covering (joint test)</b><br>"
+                        f"t = {t_diff:+.2f}, p = {p_diff:.3f}<br>"
+                        f"<span style='color:{'#374151' if p_diff < 0.05 else '#94a3b8'}'>"
+                        f"{_diff_verdict}{' (significant)' if p_diff < 0.05 else ' (not significant)'}</span></div>",
+                        unsafe_allow_html=True)
+                else:
+                    st.markdown("<i>Not enough data for joint test</i>", unsafe_allow_html=True)
+
+            st.markdown(
+                f"<p style='font-size:.68rem;color:#9ca3af;margin-top:10px'>"
+                f"Model R² = {r2_2:.3f} · n = {n2} weeks (all weeks used, not just regime-dominant ones). "
+                f"'Short covering' impact is shown as −β_short so it's directly comparable in sign to "
+                f"β_long (both positive = bullish per k-lot). Same convention applies for a short-side "
+                f"read: β_short itself is the price effect of a k-lot of fresh short <i>selling</i>.</p>",
+                unsafe_allow_html=True)
+
     # scatter sections moved to dedicated Correlation tab (render_correlation)
 
 
