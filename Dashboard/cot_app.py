@@ -2971,7 +2971,7 @@ def render_analysis(d, report, color, commodity="KC"):
                 title=dict(text=f"{flow_pick}: Weekly Price Δ% by Flow Regime  ·  {long_col} / {short_col}",
                            font=dict(size=11, color="#374151"), x=0),
                 margin=dict(l=56, r=24, t=44, b=44),
-                yaxis=dict(**_ax(), title_text="Price weekly Δ%", zeroline=True, zerolinecolor="#cbd5e1"))
+                yaxis=dict(**_ax(), title_text="Price weekly Δ%"))
             st.plotly_chart(fig_box, width='stretch')
 
             def _grp_stats(g):
@@ -3078,17 +3078,23 @@ def render_correlation(d, report, color):
 
     with st.expander("Price vs Positioning — scatter", expanded=True):
         c1, _ = st.columns([2,5])
-        with c1: sel2 = st.selectbox("COT element", all_opts, key="anal_col_leg")
-        if sel2 and "Px" in d.columns:
+        with c1:
+            sel2_list = st.multiselect("COT element (summed if multiple)", all_opts,
+                                        default=[all_opts[0]] if all_opts else [], key="anal_col_leg")
+        sel2_avail = [c for c in sel2_list if c in d.columns]
+        if sel2_avail and "Px" in d.columns:
+            sel2  = " + ".join(sel2_avail)
+            d_tmp = d.copy()
+            d_tmp["_SEL"] = sum(d_tmp[c] for c in sel2_avail)
             ch1, ch2 = st.columns(2)
             with ch1:
-                st.plotly_chart(scatter_2d(d,"Px",sel2,color,
+                st.plotly_chart(scatter_2d(d_tmp,"Px","_SEL",color,
                     f"Price Δ%  vs  {sel2} Δ","Price weekly Δ%",f"{sel2} Δ (k lots)"),
                     width='stretch')
             with ch2:
-                x = np.asarray(d["Px"], dtype=float)
-                y = np.asarray(d[sel2], dtype=float) / 1000
-                dates = np.asarray(d["Date"])
+                x = np.asarray(d_tmp["Px"], dtype=float)
+                y = np.asarray(d_tmp["_SEL"], dtype=float) / 1000
+                dates = np.asarray(d_tmp["Date"])
                 mask = ~(np.isnan(x)|np.isnan(y))
                 if mask.sum() >= 5:
                     r2v = float(np.corrcoef(x[mask],y[mask])[0,1]**2)
