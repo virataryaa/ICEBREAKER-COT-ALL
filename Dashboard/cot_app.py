@@ -3134,9 +3134,10 @@ def render_analysis(d, report, color, commodity="KC"):
                 title=dict(text=f"{flow_pick}: Δ{long_col}  vs  Δ{short_col}  ·  coloured by price move",
                            font=dict(size=11, color="#374151"), x=0),
                 margin=dict(l=60, r=24, t=44, b=50),
-                xaxis=dict(**_ax(), title_text=f"Δ{long_col} (k lots)", range=_rng),
+                xaxis=dict(**_ax(), title_text=f"Δ{long_col} (k lots)", range=_rng,
+                           constrain="domain"),
                 yaxis=dict(**_ax(), title_text=f"Δ{short_col} (k lots)", range=_rng,
-                           scaleanchor="x", scaleratio=1))
+                           scaleanchor="x", scaleratio=1, constrain="domain"))
             st.plotly_chart(fig_map, width='stretch')
 
             # ── Four-way regression: buying / liquidation / selling / covering ──
