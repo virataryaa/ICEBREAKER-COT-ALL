@@ -2408,10 +2408,13 @@ def render_exposure(d, commodity, color):
         if c in d.columns:
             net_map[c] = d[c].iloc[-1]
 
+    # mult: USD/GBP per 1 contract per unit price (cents/lb → USD needs /100)
+    px_mult = cs / 100 if cu == "lbs" else cs
+
     rows = []
     for col, lots in net_map.items():
         if pd.isna(lots): continue
-        nominal = abs(lots) * cs * px
+        nominal = abs(lots) * px_mult * px
         rows.append({"Position": col, "Contracts": f"{lots/1000:.1f}k",
                      "Nominal (USD)": f"${nominal/1e6:.1f}M"})
     if rows:
@@ -2421,7 +2424,7 @@ def render_exposure(d, commodity, color):
     # Timeseries of nominal net spec
     nc = next((c for c in ["Spec Net","MM Net","Combined Spec Net"] if c in d.columns), None)
     if nc:
-        nom_ts = d[nc].abs() * cs * d["Px"].ffill() / 1e6
+        nom_ts = d[nc].abs() * px_mult * d["Px"].ffill() / 1e6
         fig = go.Figure(go.Scatter(
             x=d["Date"], y=nom_ts, name="Nominal |Net|",
             fill="tozeroy",
@@ -2525,7 +2528,7 @@ def render_analysis(d, report, color, commodity="KC"):
     y_hist = ds_r[common].values.astype(float)
 
     # Strip CFTC data-entry errors (e.g. Non Rep Long = 2.7B lots on LCC)
-    # Keep rows within 3 IQR of the median on the COT series
+    # Keep rows within 5 IQR of the median on the COT series
     if len(y_hist) >= 10:
         _iqr = np.percentile(y_hist, 75) - np.percentile(y_hist, 25)
         _med = np.median(y_hist)
@@ -2650,6 +2653,9 @@ def render_analysis(d, report, color, commodity="KC"):
         ds_full    = _sel_full.diff()
         pred_full  = beta * _px_chg_full + alpha
         bar_mask   = ~(ds_full.isna() | _px_chg_full.isna())
+        # Same CFTC data-entry-error strip used for the regression fit above,
+        # so a garbage week doesn't dominate the Actual-vs-Predicted chart.
+        bar_mask   = bar_mask & ((ds_full - _med).abs() <= _clip).fillna(False)
         _all_dates_v  = all_dates[bar_mask].values
         _all_actual   = ds_full[bar_mask].values
         _all_pred     = pred_full[bar_mask].values
@@ -3020,9 +3026,11 @@ def render_analysis(d, report, color, commodity="KC"):
                 f"<th style='{_th2}'>STD</th></tr>{rows_html}</table>",
                 unsafe_allow_html=True)
 
+            # Bullish pair: "moves price more" = higher (more positive) mean -> t > 0.
+            # Bearish pair: "moves price more" = lower (more negative) mean -> t < 0.
             _verdict_bull = ("Fresh longs move price more" if (pd.notna(t_bull) and t_bull > 0)
                               else "Short covering moves price more")
-            _verdict_bear = ("Fresh shorts move price more" if (pd.notna(t_bear) and t_bear > 0)
+            _verdict_bear = ("Fresh shorts move price more" if (pd.notna(t_bear) and t_bear < 0)
                               else "Long liquidation moves price more")
 
             c_t1, c_t2, c_t3 = st.columns(3)
@@ -3144,6 +3152,10 @@ def render_correlation(d, report, color):
     def _build_series(col_list, mode):
         avail = [c for c in col_list if c in d.columns or c == "Rollex Px"]
         if not avail: return pd.Series(dtype=float), ""
+        if "Rollex Px" in avail and len(avail) > 1:
+            st.warning("Rollex Px can't be summed with COT columns — different units "
+                       "(% price vs k lots). Pick Rollex Px alone or only COT columns for this axis.")
+            return pd.Series(dtype=float), ""
         parts = []
         for c in avail:
             s = d["Px"] if c == "Rollex Px" else d[c]
@@ -3444,17 +3456,26 @@ def render_combined(commodity, start_date, end_date, color):
     if merged.empty:
         st.warning("No overlapping dates between the two legs."); return
 
-    merged["Comb Long"]     = merged["Long_a"]  + merged["Long_b"]
-    merged["Comb Short"]    = merged["Short_a"] + merged["Short_b"]
-    merged["Comb Net"]      = merged["Net_a"]   + merged["Net_b"]
-    merged["Comb OI"]       = merged["OI_a"]    + merged["OI_b"]
-    merged["Comb Net+Idx"]  = merged["Comb Net"] + merged["IdxNet"].fillna(0)
-    merged["Rel Spec"]      = merged["Net_a"]   - merged["Net_b"]
-    merged["Comb CommL"]    = merged["CommL_a"] + merged["CommL_b"]
-    merged["Comb CommS"]    = merged["CommS_a"] + merged["CommS_b"]
+    # comm_a and comm_b can have different contract sizes (e.g. KC = 37,500 lbs
+    # vs RC = 10 MT) — a raw "1 lot + 1 lot" sum would misweight the smaller
+    # contract. Scale comm_a's lot counts into comm_b-equivalent lots (by MT)
+    # before combining so "Combined" figures reflect true physical exposure.
+    def _mt_size(comm):
+        sz = CONTRACT_SIZE.get(comm, 1)
+        return sz * 0.00045359237 if CONTRACT_UNIT.get(comm) == "lbs" else sz
+    _scale_a = _mt_size(comm_a) / _mt_size(comm_b)
+
+    merged["Comb Long"]     = merged["Long_a"] * _scale_a  + merged["Long_b"]
+    merged["Comb Short"]    = merged["Short_a"] * _scale_a + merged["Short_b"]
+    merged["Comb Net"]      = merged["Net_a"] * _scale_a   + merged["Net_b"]
+    merged["Comb OI"]       = merged["OI_a"] * _scale_a    + merged["OI_b"]
+    merged["Comb Net+Idx"]  = merged["Comb Net"] + merged["IdxNet"].fillna(0) * _scale_a
+    merged["Rel Spec"]      = merged["Net_a"] * _scale_a   - merged["Net_b"]
+    merged["Comb CommL"]    = merged["CommL_a"] * _scale_a + merged["CommL_b"]
+    merged["Comb CommS"]    = merged["CommS_a"] * _scale_a + merged["CommS_b"]
     merged["CommNet_a"]     = merged["CommL_a"] - merged["CommS_a"]
     merged["CommNet_b"]     = merged["CommL_b"] - merged["CommS_b"]
-    merged["Comb CommNet"]  = merged["CommNet_a"] + merged["CommNet_b"]
+    merged["Comb CommNet"]  = merged["CommNet_a"] * _scale_a + merged["CommNet_b"]
 
     # ── Header ────────────────────────────────────────────────────────────────
     st.markdown(
