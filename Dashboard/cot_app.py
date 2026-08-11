@@ -3003,22 +3003,6 @@ def render_analysis(d, report, color, commodity="KC"):
 
             stats_rows = {g: _grp_stats(g) for g in _order}
 
-            def _ttest(g1, g2):
-                y1, y2 = dPx_g[group == g1], dPx_g[group == g2]
-                if len(y1) < 2 or len(y2) < 2:
-                    return np.nan, np.nan
-                t, p = scipy_stats.ttest_ind(y1, y2, equal_var=False)
-                return float(t), float(p)
-
-            t_bull, p_bull = _ttest("Long-Led Rally", "Short-Cover Rally")
-            t_bear, p_bear = _ttest("Short-Led Selloff", "Long-Liq Selloff")
-
-            _anova_groups = [dPx_g[group == g] for g in _order if (group == g).sum() >= 2]
-            if len(_anova_groups) >= 2:
-                f_stat, p_anova = scipy_stats.f_oneway(*_anova_groups)
-            else:
-                f_stat, p_anova = np.nan, np.nan
-
             _th2 = ("padding:5px 10px;font-size:.60rem;font-weight:700;color:#94a3b8;"
                     "letter-spacing:.05em;border:1px solid #e5e7eb;background:#f9fafb;text-align:left")
             _td2 = "padding:6px 10px;font-size:.78rem;font-weight:600;color:#1e293b;border:1px solid #e5e7eb"
@@ -3040,111 +3024,74 @@ def render_analysis(d, report, color, commodity="KC"):
                 f"<th style='{_th2}'>STD</th></tr>{rows_html}</table>",
                 unsafe_allow_html=True)
 
-            # Bullish pair: "moves price more" = higher (more positive) mean -> t > 0.
-            # Bearish pair: "moves price more" = lower (more negative) mean -> t < 0.
-            _verdict_bull = ("Fresh longs move price more" if (pd.notna(t_bull) and t_bull > 0)
-                              else "Short covering moves price more")
-            _verdict_bear = ("Fresh shorts move price more" if (pd.notna(t_bear) and t_bear < 0)
-                              else "Long liquidation moves price more")
-
-            c_t1, c_t2, c_t3 = st.columns(3)
-            with c_t1:
-                st.markdown(
-                    (f"<div style='font-size:.75rem;color:#374151'><b>Long-Led vs Short-Cover</b><br>"
-                     f"t = {t_bull:+.2f}, p = {p_bull:.3f}<br>"
-                     f"<span style='color:{'#16a34a' if p_bull < 0.05 else '#94a3b8'}'>"
-                     f"{_verdict_bull}{' (significant)' if p_bull < 0.05 else ' (not significant)'}</span></div>"
-                     ) if pd.notna(p_bull) else "<i>Not enough data</i>",
-                    unsafe_allow_html=True)
-            with c_t2:
-                st.markdown(
-                    (f"<div style='font-size:.75rem;color:#374151'><b>Short-Led vs Long-Liq</b><br>"
-                     f"t = {t_bear:+.2f}, p = {p_bear:.3f}<br>"
-                     f"<span style='color:{'#dc2626' if p_bear < 0.05 else '#94a3b8'}'>"
-                     f"{_verdict_bear}{' (significant)' if p_bear < 0.05 else ' (not significant)'}</span></div>"
-                     ) if pd.notna(p_bear) else "<i>Not enough data</i>",
-                    unsafe_allow_html=True)
-            with c_t3:
-                st.markdown(
-                    (f"<div style='font-size:.75rem;color:#374151'><b>ANOVA — all 4 regimes</b><br>"
-                     f"F = {f_stat:.2f}, p = {p_anova:.3f}<br>"
-                     f"<span style='color:{'#374151' if p_anova < 0.05 else '#94a3b8'}'>"
-                     f"{'regimes differ significantly' if p_anova < 0.05 else 'no significant difference'}</span></div>"
-                     ) if pd.notna(p_anova) else "<i>Not enough data</i>",
-                    unsafe_allow_html=True)
-
             st.markdown(
                 "<p style='font-size:.68rem;color:#9ca3af;margin-top:10px'>"
                 "Regime = dominant driver of the weekly net Δ: <b>Long-Led Rally</b> (Δnet&gt;0, ΔLong ≥ −ΔShort) · "
                 "<b>Short-Cover Rally</b> (Δnet&gt;0, −ΔShort &gt; ΔLong) · "
                 "<b>Short-Led Selloff</b> (Δnet&lt;0, ΔShort ≥ −ΔLong) · "
-                "<b>Long-Liq Selloff</b> (Δnet&lt;0, −ΔLong &gt; ΔShort). "
-                "Welch's t-test (unequal variance) on concurrent weekly price %Δ; one-way ANOVA tests "
-                "whether all 4 regimes have equal mean price impact.</p>",
+                "<b>Long-Liq Selloff</b> (Δnet&lt;0, −ΔLong &gt; ΔShort).</p>",
                 unsafe_allow_html=True)
 
-            # ── Per-regime scatter: flow magnitude vs price move ────────────
-            st.markdown(
-                "<div style='font-size:.82rem;font-weight:700;color:#374151;"
-                "margin:20px 0 4px;letter-spacing:.02em'>"
-                "FLOW MAGNITUDE vs PRICE MOVE  ·  by regime</div>"
-                "<p style='font-size:.7rem;color:#9ca3af;margin:0 0 10px'>"
-                "X = size of that week's dominant driver (k lots) · Y = that week's price Δ% · "
-                "a positive slope means bigger flow weeks produced bigger price moves.</p>",
-                unsafe_allow_html=True)
+            # ── Per-regime scatter: flow magnitude vs price move (collapsed) ─
+            with st.expander("FLOW MAGNITUDE vs PRICE MOVE · by regime", expanded=False):
+                st.markdown(
+                    "<p style='font-size:.7rem;color:#9ca3af;margin:0 0 10px'>"
+                    "X = size of that week's dominant driver (k lots) · Y = that week's price Δ% · "
+                    "a positive slope means bigger flow weeks produced bigger price moves.</p>",
+                    unsafe_allow_html=True)
 
-            _reg_specs = [
-                ("Long-Led Rally",    "ΔLong added (k lots)"),
-                ("Short-Cover Rally", "−ΔShort covered (k lots)"),
-                ("Short-Led Selloff", "ΔShort added (k lots)"),
-                ("Long-Liq Selloff",  "−ΔLong liquidated (k lots)"),
-            ]
-            fig_grid = make_subplots(
-                rows=2, cols=2,
-                subplot_titles=[f"{g}  (n={int((group==g).sum())})" for g, _ in _reg_specs],
-                horizontal_spacing=0.09, vertical_spacing=0.16)
+                _reg_specs = [
+                    ("Long-Led Rally",    "ΔLong added (k lots)"),
+                    ("Short-Cover Rally", "−ΔShort covered (k lots)"),
+                    ("Short-Led Selloff", "ΔShort added (k lots)"),
+                    ("Long-Liq Selloff",  "−ΔLong liquidated (k lots)"),
+                ]
+                fig_grid = make_subplots(
+                    rows=2, cols=2,
+                    subplot_titles=[f"{g}  (n={int((group==g).sum())})" for g, _ in _reg_specs],
+                    horizontal_spacing=0.09, vertical_spacing=0.16)
 
-            for i, (g, xlabel) in enumerate(_reg_specs):
-                r, c = i // 2 + 1, i % 2 + 1
-                gx = dom_mag_g[group == g]
-                gy = dPx_g[group == g]
-                gd = dates_g[group == g]
-                gmask = ~(np.isnan(gx) | np.isnan(gy))
-                gx, gy, gd = gx[gmask], gy[gmask], gd[gmask]
-                if len(gx) == 0:
-                    continue
-                fig_grid.add_trace(go.Scatter(
-                    x=gx, y=gy, mode="markers",
-                    marker=dict(color=_gcolor[g], size=6, opacity=0.65,
-                                line=dict(width=0.4, color="white")),
-                    text=pd.to_datetime(gd).strftime("%d %b %Y"),
-                    hovertemplate=f"<b>%{{text}}</b><br>{xlabel}: %{{x:.1f}}k<br>ΔPx%%: %{{y:+.2f}}%%<extra></extra>",
-                    showlegend=False), row=r, col=c)
-                if len(gx) >= 4:
-                    sl, ic = np.polyfit(gx, gy, 1)
-                    r2v = float(np.corrcoef(gx, gy)[0, 1] ** 2)
-                    xl = np.linspace(gx.min(), gx.max(), 50)
+                for i, (g, xlabel) in enumerate(_reg_specs):
+                    r, c = i // 2 + 1, i % 2 + 1
+                    gx = dom_mag_g[group == g]
+                    gy = dPx_g[group == g]
+                    gd = dates_g[group == g]
+                    gmask = ~(np.isnan(gx) | np.isnan(gy))
+                    gx, gy, gd = gx[gmask], gy[gmask], gd[gmask]
+                    if len(gx) == 0:
+                        continue
                     fig_grid.add_trace(go.Scatter(
-                        x=xl, y=sl * xl + ic, mode="lines",
-                        line=dict(color=_gcolor[g], width=1.8, dash="dash"),
+                        x=gx, y=gy, mode="markers",
+                        marker=dict(color=_gcolor[g], size=6, opacity=0.65,
+                                    line=dict(width=0.4, color="white")),
+                        text=pd.to_datetime(gd).strftime("%d %b %Y"),
+                        hovertemplate=f"<b>%{{text}}</b><br>{xlabel}: %{{x:.1f}}k<br>ΔPx%%: %{{y:+.2f}}%%<extra></extra>",
                         showlegend=False), row=r, col=c)
-                    fig_grid.add_annotation(
-                        text=f"R²={r2v:.2f}", x=0.04, y=0.94, xref=f"x{i+1} domain" if i else "x domain",
-                        yref=f"y{i+1} domain" if i else "y domain",
-                        showarrow=False, font=dict(size=9, color="#6b7280"),
-                        xanchor="left", yanchor="top")
-                _gx_ax = {**_ax(x=False), "tickfont": dict(size=8)}
-                _gy_ax = {**_ax(), "tickfont": dict(size=8)}
-                fig_grid.update_xaxes(title_text=xlabel, title_font=dict(size=9),
-                                       row=r, col=c, **_gx_ax)
-                fig_grid.update_yaxes(title_text="Price Δ%" if c == 1 else "",
-                                       title_font=dict(size=9),
-                                       row=r, col=c, **_gy_ax)
+                    if len(gx) >= 4:
+                        sl, ic = np.polyfit(gx, gy, 1)
+                        r2v = float(np.corrcoef(gx, gy)[0, 1] ** 2)
+                        xl = np.linspace(gx.min(), gx.max(), 50)
+                        fig_grid.add_trace(go.Scatter(
+                            x=xl, y=sl * xl + ic, mode="lines",
+                            line=dict(color=_gcolor[g], width=1.8, dash="dash"),
+                            showlegend=False), row=r, col=c)
+                        fig_grid.add_annotation(
+                            text=f"R²={r2v:.2f}", x=0.04, y=0.94, xref=f"x{i+1} domain" if i else "x domain",
+                            yref=f"y{i+1} domain" if i else "y domain",
+                            showarrow=False, font=dict(size=9, color="#6b7280"),
+                            xanchor="left", yanchor="top")
+                    _gx_ax = {**_ax(x=False), "tickfont": dict(size=8)}
+                    _gy_ax = {**_ax(), "tickfont": dict(size=8)}
+                    fig_grid.update_xaxes(title_text=xlabel, title_font=dict(size=9),
+                                           row=r, col=c, **_gx_ax)
+                    fig_grid.update_yaxes(title_text="Price Δ%" if c == 1 else "",
+                                           title_font=dict(size=9),
+                                           row=r, col=c, **_gy_ax)
 
-            fig_grid.update_layout(**_BASE, height=560,
-                margin=dict(l=50, r=20, t=40, b=40))
-            fig_grid.update_annotations(font=dict(size=10, color="#374151"))
-            st.plotly_chart(fig_grid, width='stretch')
+                fig_grid.update_layout(**_BASE, height=560,
+                    margin=dict(l=50, r=20, t=40, b=40))
+                fig_grid.update_annotations(font=dict(size=10, color="#374151"))
+                st.plotly_chart(fig_grid, width='stretch')
 
             # ── Long vs Short flow map — every week, no regime bucketing ────
             st.markdown(
