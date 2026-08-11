@@ -3189,81 +3189,110 @@ def render_analysis(d, report, color, commodity="KC"):
                 yaxis=dict(**_ax(), title_text=f"Δ{short_col} (k lots)"))
             st.plotly_chart(fig_map, width='stretch')
 
-            # ── Two-leg regression: price impact per k-lot, long vs short ───
-            X2 = np.column_stack([dL_v, dS_v, np.ones_like(dL_v)])
-            coef2, _, rank2, _ = np.linalg.lstsq(X2, dPx_v, rcond=None)
-            beta_L, beta_S, alpha2 = coef2
-            y_hat2  = X2 @ coef2
-            ss_res2 = float(np.sum((dPx_v - y_hat2) ** 2))
-            ss_tot2 = float(np.sum((dPx_v - dPx_v.mean()) ** 2))
-            r2_2    = 1 - ss_res2 / ss_tot2 if ss_tot2 > 0 else 0
+            # ── Four-way regression: buying / liquidation / selling / covering ──
+            # A single beta_long, beta_short model forces buying and liquidating
+            # the SAME leg to have equal-and-opposite impact (it's one straight
+            # line through both signs). To let each of the four flows have its
+            # own independent price impact, split each leg into two >=0 variables.
+            pos_L = np.clip(dL_v, 0, None)    # fresh buying (k lots)
+            liq_L = np.clip(-dL_v, 0, None)   # long liquidation (k lots, magnitude)
+            sell_S = np.clip(dS_v, 0, None)   # fresh short selling (k lots)
+            cov_S  = np.clip(-dS_v, 0, None)  # short covering (k lots, magnitude)
 
-            n2, k2 = X2.shape
-            dof2   = n2 - k2
-            se_L = se_S = p_L = p_S = t_diff = p_diff = np.nan
-            if dof2 > 0 and rank2 == k2:
+            X4 = np.column_stack([pos_L, liq_L, sell_S, cov_S, np.ones_like(dL_v)])
+            coef4, _, rank4, _ = np.linalg.lstsq(X4, dPx_v, rcond=None)
+            b_buy, b_liq, b_sell, b_cov, a4 = coef4
+            y_hat4  = X4 @ coef4
+            ss_res4 = float(np.sum((dPx_v - y_hat4) ** 2))
+            ss_tot4 = float(np.sum((dPx_v - dPx_v.mean()) ** 2))
+            r2_4    = 1 - ss_res4 / ss_tot4 if ss_tot4 > 0 else 0
+
+            n4, k4 = X4.shape
+            dof4    = n4 - k4
+            se4 = np.full(4, np.nan)
+            p4  = np.full(4, np.nan)
+            t_bull = p_bull = t_bear = p_bear = np.nan
+            if dof4 > 0 and rank4 == k4:
                 try:
-                    sigma2  = ss_res2 / dof2
-                    XtX_inv = np.linalg.inv(X2.T @ X2)
-                    se_vec  = np.sqrt(np.diag(sigma2 * XtX_inv))
-                    se_L, se_S = se_vec[0], se_vec[1]
-                    p_L = float(2 * scipy_stats.t.sf(abs(beta_L / se_L), dof2)) if se_L > 0 else np.nan
-                    p_S = float(2 * scipy_stats.t.sf(abs(beta_S / se_S), dof2)) if se_S > 0 else np.nan
-                    # Joint test: H0: beta_L = -beta_S  (buying's per-lot impact
-                    # equals covering's per-lot impact, i.e. beta_L + beta_S = 0)
-                    cov_LS  = sigma2 * XtX_inv[0, 1]
-                    var_sum = se_L ** 2 + se_S ** 2 + 2 * cov_LS
-                    if var_sum > 0:
-                        t_diff = (beta_L + beta_S) / np.sqrt(var_sum)
-                        p_diff = float(2 * scipy_stats.t.sf(abs(t_diff), dof2))
+                    sigma2  = ss_res4 / dof4
+                    XtX_inv = np.linalg.inv(X4.T @ X4)
+                    se4 = np.sqrt(np.diag(sigma2 * XtX_inv)[:4])
+                    for i in range(4):
+                        p4[i] = (2 * scipy_stats.t.sf(abs(coef4[i] / se4[i]), dof4)
+                                  if se4[i] > 0 else np.nan)
+                    # Bullish joint test: H0: b_buy = b_cov (both already same-sign)
+                    var_bull = se4[0] ** 2 + se4[3] ** 2 - 2 * sigma2 * XtX_inv[0, 3]
+                    if var_bull > 0:
+                        t_bull = (b_buy - b_cov) / np.sqrt(var_bull)
+                        p_bull = float(2 * scipy_stats.t.sf(abs(t_bull), dof4))
+                    # Bearish joint test: H0: b_liq = b_sell (both already same-sign)
+                    var_bear = se4[1] ** 2 + se4[2] ** 2 - 2 * sigma2 * XtX_inv[1, 2]
+                    if var_bear > 0:
+                        t_bear = (b_liq - b_sell) / np.sqrt(var_bear)
+                        p_bear = float(2 * scipy_stats.t.sf(abs(t_bear), dof4))
                 except np.linalg.LinAlgError:
                     pass
 
             st.markdown(
                 "<div style='font-size:.82rem;font-weight:700;color:#374151;"
                 "margin:18px 0 4px;letter-spacing:.02em'>"
-                "PRICE IMPACT PER K-LOT  ·  buying vs covering, controlling for the other leg</div>"
+                "PRICE IMPACT PER K-LOT  ·  all four flows, each controlling for the other three</div>"
                 "<p style='font-size:.7rem;color:#9ca3af;margin:0 0 10px'>"
-                "One regression, ΔPx% = β_long·ΔLong + β_short·ΔShort + α, fit across all weeks "
-                "at once — each coefficient is the marginal price effect of that leg, holding the "
-                "other leg constant.</p>",
+                "One regression: ΔPx% = β_buy·(buying) + β_liq·(liquidation) + β_sell·(selling) + "
+                "β_cov·(covering) + α, fit across all weeks at once — each of the four flows gets its "
+                "own independent coefficient instead of assuming adding and unwinding the same leg "
+                "have equal-and-opposite impact.</p>",
                 unsafe_allow_html=True)
 
-            _cov_impact = -beta_S if pd.notna(beta_S) else np.nan
-            _mc1, _mc2, _mc3 = st.columns(3)
-            with _mc1:
-                st.markdown(
-                    f"<div style='font-size:.75rem;color:#374151'><b>Fresh buying</b><br>"
-                    f"{beta_L:+.3f}% per k-lot of ΔLong<br>"
-                    f"<span style='color:{'#16a34a' if pd.notna(p_L) and p_L < 0.05 else '#94a3b8'}'>"
-                    f"p = {p_L:.3f}{' (significant)' if pd.notna(p_L) and p_L < 0.05 else ''}</span></div>"
-                    if pd.notna(beta_L) else "<i>Not enough data</i>", unsafe_allow_html=True)
-            with _mc2:
-                st.markdown(
-                    f"<div style='font-size:.75rem;color:#374151'><b>Short covering</b><br>"
-                    f"{_cov_impact:+.3f}% per k-lot covered (−β_short)<br>"
-                    f"<span style='color:{'#16a34a' if pd.notna(p_S) and p_S < 0.05 else '#94a3b8'}'>"
-                    f"p = {p_S:.3f}{' (significant)' if pd.notna(p_S) and p_S < 0.05 else ''}</span></div>"
-                    if pd.notna(beta_S) else "<i>Not enough data</i>", unsafe_allow_html=True)
-            with _mc3:
-                if pd.notna(p_diff):
-                    _diff_verdict = ("Buying moves price more per lot" if beta_L > _cov_impact
-                                      else "Covering moves price more per lot")
+            def _impact_card(col, label, beta, se, p, positive_is_bullish):
+                sig = pd.notna(p) and p < 0.05
+                _clr = ("#16a34a" if positive_is_bullish else "#dc2626") if sig else "#94a3b8"
+                with col:
                     st.markdown(
-                        f"<div style='font-size:.75rem;color:#374151'><b>Buying vs Covering (joint test)</b><br>"
-                        f"t = {t_diff:+.2f}, p = {p_diff:.3f}<br>"
-                        f"<span style='color:{'#374151' if p_diff < 0.05 else '#94a3b8'}'>"
-                        f"{_diff_verdict}{' (significant)' if p_diff < 0.05 else ' (not significant)'}</span></div>",
+                        (f"<div style='font-size:.75rem;color:#374151'><b>{label}</b><br>"
+                         f"{beta:+.3f}% per k-lot<br>"
+                         f"<span style='color:{_clr}'>p = {p:.3f}{' (significant)' if sig else ''}</span></div>"
+                         ) if pd.notna(beta) else "<i>Not enough data</i>",
+                        unsafe_allow_html=True)
+
+            _ic1, _ic2, _ic3, _ic4 = st.columns(4)
+            _impact_card(_ic1, "Fresh buying",      b_buy,  se4[0], p4[0], True)
+            _impact_card(_ic2, "Short covering",     b_cov,  se4[3], p4[3], True)
+            _impact_card(_ic3, "Fresh short selling", b_sell, se4[2], p4[2], False)
+            _impact_card(_ic4, "Long liquidation",   b_liq,  se4[1], p4[1], False)
+
+            _jc1, _jc2 = st.columns(2)
+            with _jc1:
+                if pd.notna(p_bull):
+                    _v_bull = ("Fresh buying moves price more" if b_buy > b_cov
+                               else "Short covering moves price more")
+                    st.markdown(
+                        f"<div style='font-size:.75rem;color:#374151'><b>Bullish: Buying vs Covering</b><br>"
+                        f"t = {t_bull:+.2f}, p = {p_bull:.3f}<br>"
+                        f"<span style='color:{'#16a34a' if p_bull < 0.05 else '#94a3b8'}'>"
+                        f"{_v_bull}{' (significant)' if p_bull < 0.05 else ' (not significant)'}</span></div>",
+                        unsafe_allow_html=True)
+                else:
+                    st.markdown("<i>Not enough data for joint test</i>", unsafe_allow_html=True)
+            with _jc2:
+                if pd.notna(p_bear):
+                    _v_bear = ("Long liquidation moves price more" if b_liq < b_sell
+                               else "Fresh short selling moves price more")
+                    st.markdown(
+                        f"<div style='font-size:.75rem;color:#374151'><b>Bearish: Selling vs Liquidation</b><br>"
+                        f"t = {t_bear:+.2f}, p = {p_bear:.3f}<br>"
+                        f"<span style='color:{'#dc2626' if p_bear < 0.05 else '#94a3b8'}'>"
+                        f"{_v_bear}{' (significant)' if p_bear < 0.05 else ' (not significant)'}</span></div>",
                         unsafe_allow_html=True)
                 else:
                     st.markdown("<i>Not enough data for joint test</i>", unsafe_allow_html=True)
 
             st.markdown(
                 f"<p style='font-size:.68rem;color:#9ca3af;margin-top:10px'>"
-                f"Model R² = {r2_2:.3f} · n = {n2} weeks (all weeks used, not just regime-dominant ones). "
-                f"'Short covering' impact is shown as −β_short so it's directly comparable in sign to "
-                f"β_long (both positive = bullish per k-lot). Same convention applies for a short-side "
-                f"read: β_short itself is the price effect of a k-lot of fresh short <i>selling</i>.</p>",
+                f"Model R² = {r2_4:.3f} · n = {n4} weeks (all weeks used, not just regime-dominant ones). "
+                f"Buying and covering are expected positive (bullish per k-lot); selling and liquidation "
+                f"are expected negative (bearish per k-lot) — a sign flipped from expectation usually "
+                f"means that flow has no real price impact once the other three are controlled for.</p>",
                 unsafe_allow_html=True)
 
     # scatter sections moved to dedicated Correlation tab (render_correlation)
