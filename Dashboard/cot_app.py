@@ -2879,6 +2879,188 @@ def render_analysis(d, report, color, commodity="KC"):
     else:
         st.info("Not enough overlapping data for pairwise correlation.")
 
+    st.markdown("---")
+
+    # ── Section 3: Fresh Flow Attribution ────────────────────────────────────
+    # Does fresh buying/selling move price more than covering/liquidating?
+    st.markdown("<div style='font-size:.88rem;font-weight:700;color:#374151;"
+                "margin:0 0 8px;letter-spacing:.02em'>FRESH FLOW ATTRIBUTION  ·  "
+                "does adding move price more than covering?</div>",
+                unsafe_allow_html=True)
+
+    # name -> (long cols to sum, short cols to sum)
+    _pair_candidates = [
+        ("Spec",               ["Spec Long"],              ["Spec Short"]),
+        ("MM",                 ["MM Long"],                ["MM Short"]),
+        ("Non Rep",            ["Non Rep Long"],           ["Non Rep Short"]),
+        ("Comm",               ["Comm Long"],              ["Comm Short"]),
+        ("Producer",           ["Producer Long"],          ["Producer Short"]),
+        ("Other",              ["Other Long"],             ["Other Short"]),
+        ("Index",              ["Index Long"],             ["Index Short"]),
+        ("Swap",               ["Swap Long"],              ["Swap Short"]),
+        ("Non Rep + Other",    ["Non Rep Long", "Other Long"],
+                                ["Non Rep Short", "Other Short"]),
+        ("Spec + Non Rep",     ["Spec Long", "Non Rep Long"],
+                                ["Spec Short", "Non Rep Short"]),
+        ("Spec + Non Rep + Index", ["Spec Long", "Non Rep Long", "Index Long"],
+                                    ["Spec Short", "Non Rep Short", "Index Short"]),
+        ("MM + Non Rep + Other",   ["MM Long", "Non Rep Long", "Other Long"],
+                                    ["MM Short", "Non Rep Short", "Other Short"]),
+    ]
+    _avail_pairs = [
+        (n, lc, sc) for n, lc, sc in _pair_candidates
+        if all(c in d.columns for c in lc) and all(c in d.columns for c in sc)
+    ]
+
+    if not _avail_pairs:
+        st.info("No gross Long/Short columns available for flow attribution.")
+    else:
+        _pair_names = [n for n, _, _ in _avail_pairs]
+        _def_name   = "Spec" if report == "CIT" else "MM"
+        _def_idx    = _pair_names.index(_def_name) if _def_name in _pair_names else 0
+        cflow1, _ = st.columns([2, 5])
+        with cflow1:
+            flow_pick = st.selectbox(
+                "Category", _pair_names, index=_def_idx, key="flow_attr_cat",
+                help="Recommended: Spec for the CIT report, MM (Managed Money) for the Disaggregated "
+                     "report — these are the pure directional speculative categories, uncontaminated "
+                     "by hedging/spreading flow. Composite categories (e.g. Non Rep + Other) sum the "
+                     "long and short legs before differencing.")
+        _, long_cols, short_cols = next(t for t in _avail_pairs if t[0] == flow_pick)
+        long_col  = " + ".join(long_cols)
+        short_col = " + ".join(short_cols)
+
+        dL  = sum(d[c].astype(float) for c in long_cols).diff() / 1000
+        dS  = sum(d[c].astype(float) for c in short_cols).diff() / 1000
+        dPx = px_chg
+
+        fmask   = ~(dL.isna() | dS.isna() | dPx.isna())
+        dL_v, dS_v, dPx_v = dL[fmask].values, dS[fmask].values, dPx[fmask].values
+
+        if len(dL_v) < 10:
+            st.info(f"Not enough data for flow attribution ({len(dL_v)} obs — need ≥ 10).")
+        else:
+            dnet    = dL_v - dS_v
+            is_bull = dnet > 0
+            is_bear = dnet < 0
+
+            bull_long_contrib, bull_cover_contrib = dL_v, -dS_v
+            bear_short_contrib, bear_liq_contrib  = dS_v, -dL_v
+
+            group = np.full(len(dL_v), "", dtype=object)
+            group[is_bull & (bull_long_contrib  >= bull_cover_contrib)] = "Long-Led Rally"
+            group[is_bull & (bull_cover_contrib  >  bull_long_contrib)] = "Short-Cover Rally"
+            group[is_bear & (bear_short_contrib >= bear_liq_contrib)]   = "Short-Led Selloff"
+            group[is_bear & (bear_liq_contrib   >  bear_short_contrib)] = "Long-Liq Selloff"
+
+            keep = group != ""
+            group, dPx_g = group[keep], dPx_v[keep]
+
+            _order  = ["Long-Led Rally", "Short-Cover Rally", "Short-Led Selloff", "Long-Liq Selloff"]
+            _gcolor = {"Long-Led Rally": "#16a34a", "Short-Cover Rally": "#86efac",
+                       "Short-Led Selloff": "#dc2626", "Long-Liq Selloff": "#fca5a5"}
+
+            fig_box = go.Figure()
+            for g in _order:
+                yv = dPx_g[group == g]
+                if len(yv) == 0: continue
+                fig_box.add_trace(go.Box(
+                    y=yv, name=f"{g}<br>(n={len(yv)})", marker_color=_gcolor[g],
+                    boxmean=True, hovertemplate="ΔPx%: %{y:.2f}%<extra></extra>"))
+            fig_box.update_layout(**_BASE, height=380, showlegend=False,
+                title=dict(text=f"{flow_pick}: Weekly Price Δ% by Flow Regime  ·  {long_col} / {short_col}",
+                           font=dict(size=11, color="#374151"), x=0),
+                margin=dict(l=56, r=24, t=44, b=44),
+                yaxis=dict(**_ax(), title_text="Price weekly Δ%", zeroline=True, zerolinecolor="#cbd5e1"))
+            st.plotly_chart(fig_box, width='stretch')
+
+            def _grp_stats(g):
+                yv = dPx_g[group == g]
+                if len(yv) == 0:
+                    return dict(n=0, mean=np.nan, median=np.nan, std=np.nan)
+                return dict(n=len(yv), mean=float(np.mean(yv)), median=float(np.median(yv)),
+                            std=float(np.std(yv, ddof=1)) if len(yv) > 1 else np.nan)
+
+            stats_rows = {g: _grp_stats(g) for g in _order}
+
+            def _ttest(g1, g2):
+                y1, y2 = dPx_g[group == g1], dPx_g[group == g2]
+                if len(y1) < 2 or len(y2) < 2:
+                    return np.nan, np.nan
+                t, p = scipy_stats.ttest_ind(y1, y2, equal_var=False)
+                return float(t), float(p)
+
+            t_bull, p_bull = _ttest("Long-Led Rally", "Short-Cover Rally")
+            t_bear, p_bear = _ttest("Short-Led Selloff", "Long-Liq Selloff")
+
+            _anova_groups = [dPx_g[group == g] for g in _order if (group == g).sum() >= 2]
+            if len(_anova_groups) >= 2:
+                f_stat, p_anova = scipy_stats.f_oneway(*_anova_groups)
+            else:
+                f_stat, p_anova = np.nan, np.nan
+
+            _th2 = ("padding:5px 10px;font-size:.60rem;font-weight:700;color:#94a3b8;"
+                    "letter-spacing:.05em;border:1px solid #e5e7eb;background:#f9fafb;text-align:left")
+            _td2 = "padding:6px 10px;font-size:.78rem;font-weight:600;color:#1e293b;border:1px solid #e5e7eb"
+            rows_html = ""
+            for g in _order:
+                s = stats_rows[g]
+                if s["n"] == 0: continue
+                rows_html += (f"<tr><td style='{_td2}'>{g}</td>"
+                              f"<td style='{_td2}'>{s['n']}</td>"
+                              f"<td style='{_td2};color:{_gcolor[g]}'>{s['mean']:+.2f}%</td>"
+                              f"<td style='{_td2}'>{s['median']:+.2f}%</td>"
+                              f"<td style='{_td2}'>{s['std']:.2f}%</td></tr>")
+
+            st.markdown(
+                f"<table style='border-collapse:collapse;font-family:-apple-system,sans-serif;"
+                f"margin:12px 0;width:100%'>"
+                f"<tr><th style='{_th2}'>REGIME</th><th style='{_th2}'>N</th>"
+                f"<th style='{_th2}'>MEAN ΔPX%</th><th style='{_th2}'>MEDIAN ΔPX%</th>"
+                f"<th style='{_th2}'>STD</th></tr>{rows_html}</table>",
+                unsafe_allow_html=True)
+
+            _verdict_bull = ("Fresh longs move price more" if (pd.notna(t_bull) and t_bull > 0)
+                              else "Short covering moves price more")
+            _verdict_bear = ("Fresh shorts move price more" if (pd.notna(t_bear) and t_bear > 0)
+                              else "Long liquidation moves price more")
+
+            c_t1, c_t2, c_t3 = st.columns(3)
+            with c_t1:
+                st.markdown(
+                    (f"<div style='font-size:.75rem;color:#374151'><b>Long-Led vs Short-Cover</b><br>"
+                     f"t = {t_bull:+.2f}, p = {p_bull:.3f}<br>"
+                     f"<span style='color:{'#16a34a' if p_bull < 0.05 else '#94a3b8'}'>"
+                     f"{_verdict_bull}{' (significant)' if p_bull < 0.05 else ' (not significant)'}</span></div>"
+                     ) if pd.notna(p_bull) else "<i>Not enough data</i>",
+                    unsafe_allow_html=True)
+            with c_t2:
+                st.markdown(
+                    (f"<div style='font-size:.75rem;color:#374151'><b>Short-Led vs Long-Liq</b><br>"
+                     f"t = {t_bear:+.2f}, p = {p_bear:.3f}<br>"
+                     f"<span style='color:{'#dc2626' if p_bear < 0.05 else '#94a3b8'}'>"
+                     f"{_verdict_bear}{' (significant)' if p_bear < 0.05 else ' (not significant)'}</span></div>"
+                     ) if pd.notna(p_bear) else "<i>Not enough data</i>",
+                    unsafe_allow_html=True)
+            with c_t3:
+                st.markdown(
+                    (f"<div style='font-size:.75rem;color:#374151'><b>ANOVA — all 4 regimes</b><br>"
+                     f"F = {f_stat:.2f}, p = {p_anova:.3f}<br>"
+                     f"<span style='color:{'#374151' if p_anova < 0.05 else '#94a3b8'}'>"
+                     f"{'regimes differ significantly' if p_anova < 0.05 else 'no significant difference'}</span></div>"
+                     ) if pd.notna(p_anova) else "<i>Not enough data</i>",
+                    unsafe_allow_html=True)
+
+            st.markdown(
+                "<p style='font-size:.68rem;color:#9ca3af;margin-top:10px'>"
+                "Regime = dominant driver of the weekly net Δ: <b>Long-Led Rally</b> (Δnet&gt;0, ΔLong ≥ −ΔShort) · "
+                "<b>Short-Cover Rally</b> (Δnet&gt;0, −ΔShort &gt; ΔLong) · "
+                "<b>Short-Led Selloff</b> (Δnet&lt;0, ΔShort ≥ −ΔLong) · "
+                "<b>Long-Liq Selloff</b> (Δnet&lt;0, −ΔLong &gt; ΔShort). "
+                "Welch's t-test (unequal variance) on concurrent weekly price %Δ; one-way ANOVA tests "
+                "whether all 4 regimes have equal mean price impact.</p>",
+                unsafe_allow_html=True)
+
     # scatter sections moved to dedicated Correlation tab (render_correlation)
 
 
