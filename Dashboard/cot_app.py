@@ -3140,6 +3140,61 @@ def render_analysis(d, report, color, commodity="KC"):
                            scaleanchor="x", scaleratio=1, constrain="domain"))
             st.plotly_chart(fig_map, width='stretch')
 
+            # ── Same flow map with joint density contour underlay ───────────
+            st.markdown(
+                "<div style='font-size:.82rem;font-weight:700;color:#374151;"
+                "margin:20px 0 4px;letter-spacing:.02em'>"
+                "LONG vs SHORT FLOW MAP — DENSITY CONTOUR</div>"
+                "<p style='font-size:.7rem;color:#9ca3af;margin:0 0 10px'>"
+                "Same points as above, with shaded contours showing where weekly observations "
+                "cluster most densely — darker = more historical weeks landed in that combination "
+                "of ΔLong / ΔShort.</p>",
+                unsafe_allow_html=True)
+
+            fig_dens = go.Figure()
+            fig_dens.add_trace(go.Histogram2dContour(
+                x=dL_v, y=dS_v,
+                colorscale=[[0, "rgba(99,102,241,0)"], [0.35, "rgba(129,140,248,0.35)"],
+                            [0.7, "rgba(99,102,241,0.65)"], [1, "rgba(67,56,202,0.9)"]],
+                showscale=True,
+                colorbar=dict(title=dict(text="Density", side="right"), thickness=12, len=0.75,
+                              tickfont=dict(size=9), x=1.08),
+                contours=dict(coloring="fill", showlines=False),
+                line=dict(width=0),
+                ncontours=12,
+                hoverinfo="skip",
+                opacity=0.85,
+            ))
+            fig_dens.add_trace(go.Scatter(
+                x=dL_v, y=dS_v, mode="markers",
+                marker=dict(
+                    color=dPx_v, colorscale=[[0, "#dc2626"], [0.5, "#f4f4f5"], [1, "#16a34a"]],
+                    cmin=-_clim, cmax=_clim, size=6, opacity=0.85,
+                    line=dict(width=0.5, color="white"),
+                    colorbar=dict(title=dict(text="Px Δ%", side="right"), thickness=12, len=0.75,
+                                  tickfont=dict(size=9), x=1.20)),
+                text=pd.to_datetime(dates_v).strftime("%d %b %Y"),
+                customdata=dPx_v,
+                hovertemplate="<b>%{text}</b><br>ΔLong: %{x:+.1f}k<br>ΔShort: %{y:+.1f}k<br>"
+                              "ΔPx%%: %{customdata:+.2f}%%<extra></extra>",
+                showlegend=False,
+            ))
+            fig_dens.add_shape(type="line", x0=0, x1=0, y0=_lo, y1=_hi,
+                               line=dict(color="#9ca3af", width=1))
+            fig_dens.add_shape(type="line", x0=_lo, x1=_hi, y0=0, y1=0,
+                               line=dict(color="#9ca3af", width=1))
+            fig_dens.add_shape(type="line", x0=_lo, x1=_hi, y0=_lo, y1=_hi,
+                               line=dict(color="#9ca3af", width=1, dash="dot"))
+            fig_dens.update_layout(**_BASE, height=460,
+                title=dict(text=f"{flow_pick}: Δ{long_col}  vs  Δ{short_col}  ·  density contour + price move",
+                           font=dict(size=11, color="#374151"), x=0),
+                margin=dict(l=60, r=90, t=44, b=50),
+                xaxis=dict(**_ax(), title_text=f"Δ{long_col} (k lots)", range=_rng,
+                           constrain="domain"),
+                yaxis=dict(**_ax(), title_text=f"Δ{short_col} (k lots)", range=_rng,
+                           scaleanchor="x", scaleratio=1, constrain="domain"))
+            st.plotly_chart(fig_dens, width='stretch')
+
             # ── Four-way regression: buying / liquidation / selling / covering ──
             # A single beta_long, beta_short model forces buying and liquidating
             # the SAME leg to have equal-and-opposite impact (it's one straight
