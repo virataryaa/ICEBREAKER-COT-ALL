@@ -3204,12 +3204,7 @@ def render_analysis(d, report, color, commodity="KC"):
             st.markdown(
                 "<div style='font-size:.82rem;font-weight:700;color:#374151;"
                 "margin:18px 0 4px;letter-spacing:.02em'>"
-                "PRICE IMPACT PER K-LOT  ·  all four flows, each controlling for the other three</div>"
-                "<p style='font-size:.7rem;color:#9ca3af;margin:0 0 10px'>"
-                "One regression: ΔPx% = β_buy·(buying) + β_liq·(liquidation) + β_sell·(selling) + "
-                "β_cov·(covering) + α, fit across all weeks at once — each of the four flows gets its "
-                "own independent coefficient instead of assuming adding and unwinding the same leg "
-                "have equal-and-opposite impact.</p>",
+                "PRICE IMPACT PER K-LOT  ·  all four flows, each controlling for the other three</div>",
                 unsafe_allow_html=True)
 
             def _impact_card(col, label, beta, se, p, positive_is_bullish):
@@ -3293,14 +3288,7 @@ def render_analysis(d, report, color, commodity="KC"):
             st.markdown(
                 "<div style='font-size:.82rem;font-weight:700;color:#374151;"
                 "margin:18px 0 4px;letter-spacing:.02em'>"
-                "FLOW SENSITIVITY TO PRICE  ·  k-lots of net flow per 1% price move</div>"
-                "<p style='font-size:.7rem;color:#9ca3af;margin:0 0 10px'>"
-                "The panel above asks 'does flow move price?'. This asks the reverse question — "
-                "'does price move flow?' i.e. do specs chase price. <b>Same-week</b> regresses this "
-                "week's Δnet on this week's ΔPx% (useful for nowcasting the in-progress week, but "
-                "price and flow are determined together so it isn't causal). <b>Lagged</b> regresses "
-                "this week's Δnet on <i>last</i> week's ΔPx%, which breaks that simultaneity and is "
-                "the cleaner test of genuine trend-chasing behaviour.</p>",
+                "FLOW SENSITIVITY TO PRICE  ·  k-lots of net flow per 1% price move</div>",
                 unsafe_allow_html=True)
 
             def _flow_card(col, label, res, note):
@@ -3328,12 +3316,7 @@ def render_analysis(d, report, color, commodity="KC"):
                 st.markdown(
                     "<div style='font-size:.82rem;font-weight:700;color:#374151;"
                     "margin:18px 0 4px;letter-spacing:.02em'>"
-                    f"{flow_pick.upper()} NOWCAST  ·  projected position from price action since last report</div>"
-                    "<p style='font-size:.7rem;color:#9ca3af;margin:0 0 10px'>"
-                    "COT is always 3+ days stale. Using the same-week β above, this projects where "
-                    "net position likely sits <i>right now</i> by applying that β to the price move "
-                    "since the last published cutoff — an approximation (it assumes this week behaves "
-                    "like an average historical week), not a forecast.</p>",
+                    f"{flow_pick.upper()} NOWCAST  ·  projected position from price action since last report</div>",
                     unsafe_allow_html=True)
 
                 rx_daily = load_rollex_ohlc(commodity)
