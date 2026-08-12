@@ -3140,66 +3140,65 @@ def render_analysis(d, report, color, commodity="KC"):
                            scaleanchor="x", scaleratio=1, constrain="domain"))
             st.plotly_chart(fig_map, width='stretch')
 
-            # ── Same flow map, coloured by how extreme that week's GROSS level was ──
+            # ── Gross-level historical extremity, as a time strip synced to price ──
             st.markdown(
                 "<div style='font-size:.82rem;font-weight:700;color:#374151;"
                 "margin:20px 0 4px;letter-spacing:.02em'>"
-                "LONG vs SHORT FLOW MAP — HISTORICAL EXTREMITY</div>"
+                "GROSS LONG / SHORT — HISTORICAL EXTREMITY OVER TIME</div>"
                 "<p style='font-size:.7rem;color:#9ca3af;margin:0 0 10px'>"
-                "Same points as above (axes are still weekly Δ), but fill colour now shows how extreme "
-                "that week's <b>gross level</b> was vs. its own history — blue = gross long near an "
-                "all-time high for that week, red = gross short near an all-time high. Marker size "
-                "scales with whichever leg is more extreme, so weeks where both legs are near record "
-                "levels simultaneously still stand out even though the fill colour cancels toward white. "
-                "The <b>outline</b> ring is that week's price move — green = price up, red = price down, "
-                "thicker ring = bigger move.</p>",
+                "Each week's <b>gross level</b> ranked against its own full history. Darker blue = gross "
+                "long closer to an all-time high that week; darker red = gross short closer to an "
+                "all-time high. Price sits on the same time axis above so you can eyeball whether price "
+                "moves coincide with either leg being historically stretched.</p>",
                 unsafe_allow_html=True)
 
             grossL_v = (sum(d[c].astype(float) for c in long_cols))[fmask].values
             grossS_v = (sum(d[c].astype(float) for c in short_cols))[fmask].values
             pctL_v = scipy_stats.rankdata(grossL_v) / len(grossL_v) * 100
             pctS_v = scipy_stats.rankdata(grossS_v) / len(grossS_v) * 100
-            signed_extreme = pctL_v - pctS_v                       # + = long more extreme, - = short more extreme
-            magnitude      = np.maximum(pctL_v, pctS_v)            # how extreme the more-stretched leg is
-            marker_size    = 5 + (magnitude / 100) * 11            # 5–16 px
-            outline_color  = np.where(dPx_v >= 0, "#16a34a", "#dc2626")
-            outline_width  = 0.6 + 2.4 * np.clip(np.abs(dPx_v) / _clim, 0, 1)   # 0.6–3.0 px
+            dates_dt = pd.to_datetime(dates_v)
 
-            fig_dens = go.Figure()
-            fig_dens.add_trace(go.Scatter(
-                x=dL_v, y=dS_v, mode="markers",
-                marker=dict(
-                    color=signed_extreme, colorscale=[[0, "#dc2626"], [0.5, "#f4f4f5"], [1, "#2563eb"]],
-                    cmin=-100, cmax=100, size=marker_size, opacity=0.9,
-                    line=dict(width=outline_width, color=outline_color),
-                    colorbar=dict(title=dict(text="Extremity", side="right"), thickness=12, len=0.75,
-                                  tickfont=dict(size=9),
-                                  tickvals=[-100, -50, 0, 50, 100],
-                                  ticktext=["Short<br>ATH", "Short", "—", "Long", "Long<br>ATH"])),
-                text=pd.to_datetime(dates_v).strftime("%d %b %Y"),
-                customdata=np.column_stack([pctL_v, pctS_v, grossL_v, grossS_v, dPx_v]),
-                hovertemplate="<b>%{text}</b><br>ΔLong: %{x:+.1f}k · ΔShort: %{y:+.1f}k<br>"
-                              "Gross Long: %{customdata[2]:,.0f}  (pct %{customdata[0]:.0f})<br>"
-                              "Gross Short: %{customdata[3]:,.0f}  (pct %{customdata[1]:.0f})<br>"
-                              "ΔPx%%: %{customdata[4]:+.2f}%%"
-                              "<extra></extra>",
-                showlegend=False,
-            ))
-            fig_dens.add_shape(type="line", x0=0, x1=0, y0=_lo, y1=_hi,
-                               line=dict(color="#9ca3af", width=1))
-            fig_dens.add_shape(type="line", x0=_lo, x1=_hi, y0=0, y1=0,
-                               line=dict(color="#9ca3af", width=1))
-            fig_dens.add_shape(type="line", x0=_lo, x1=_hi, y0=_lo, y1=_hi,
-                               line=dict(color="#9ca3af", width=1, dash="dot"))
-            fig_dens.update_layout(**_BASE, height=460,
-                title=dict(text=f"{flow_pick}: Δ{long_col}  vs  Δ{short_col}  ·  gross-level historical extremity",
+            fig_ext = make_subplots(
+                rows=3, cols=1, shared_xaxes=True,
+                row_heights=[0.44, 0.28, 0.28], vertical_spacing=0.035,
+                subplot_titles=("Weekly Price Δ%", None, None))
+
+            fig_ext.add_trace(go.Scatter(
+                x=dates_dt, y=dPx_v, mode="lines", line=dict(color="#374151", width=1.1),
+                fill="tozeroy", fillcolor="rgba(55,65,81,0.10)",
+                hovertemplate="%{x|%d %b %Y}<br>ΔPx%%: %{y:+.2f}%%<extra></extra>",
+                showlegend=False), row=1, col=1)
+            fig_ext.add_hline(y=0, line=dict(color="#d1d5db", width=1), row=1, col=1)
+
+            fig_ext.add_trace(go.Heatmap(
+                z=[pctL_v], x=dates_dt, y=[f"Gross {long_col}"],
+                customdata=[grossL_v],
+                colorscale=[[0, "#eff6ff"], [1, "#1d4ed8"]], zmin=0, zmax=100,
+                colorbar=dict(title=dict(text="Long pctl", side="right"), thickness=10, len=0.28,
+                              y=0.5, yanchor="middle", tickfont=dict(size=8)),
+                hovertemplate="%{x|%d %b %Y}<br>Gross Long: %{customdata:,.0f}<br>"
+                              "Percentile: %{z:.0f}<extra></extra>"), row=2, col=1)
+
+            fig_ext.add_trace(go.Heatmap(
+                z=[pctS_v], x=dates_dt, y=[f"Gross {short_col}"],
+                customdata=[grossS_v],
+                colorscale=[[0, "#fef2f2"], [1, "#b91c1c"]], zmin=0, zmax=100,
+                colorbar=dict(title=dict(text="Short pctl", side="right"), thickness=10, len=0.28,
+                              y=0.12, yanchor="middle", tickfont=dict(size=8)),
+                hovertemplate="%{x|%d %b %Y}<br>Gross Short: %{customdata:,.0f}<br>"
+                              "Percentile: %{z:.0f}<extra></extra>"), row=3, col=1)
+
+            fig_ext.update_layout(**_BASE, height=520,
+                title=dict(text=f"{flow_pick}: {long_col} / {short_col}  ·  gross-level historical extremity",
                            font=dict(size=11, color="#374151"), x=0),
-                margin=dict(l=60, r=90, t=44, b=50),
-                xaxis=dict(**_ax(), title_text=f"Δ{long_col} (k lots)", range=_rng,
-                           constrain="domain"),
-                yaxis=dict(**_ax(), title_text=f"Δ{short_col} (k lots)", range=_rng,
-                           scaleanchor="x", scaleratio=1, constrain="domain"))
-            st.plotly_chart(fig_dens, width='stretch')
+                margin=dict(l=110, r=90, t=54, b=40))
+            fig_ext.update_xaxes(**_ax(x=True), row=1, col=1, showticklabels=False)
+            fig_ext.update_xaxes(**_ax(x=True), row=2, col=1, showticklabels=False)
+            fig_ext.update_xaxes(**_ax(x=True), row=3, col=1)
+            fig_ext.update_yaxes(**_ax(), row=1, col=1, title_text="Δ%")
+            fig_ext.update_yaxes(showgrid=False, tickfont=dict(size=9), row=2, col=1)
+            fig_ext.update_yaxes(showgrid=False, tickfont=dict(size=9), row=3, col=1)
+            st.plotly_chart(fig_ext, width='stretch')
 
             # ── Four-way regression: buying / liquidation / selling / covering ──
             # A single beta_long, beta_short model forces buying and liquidating
