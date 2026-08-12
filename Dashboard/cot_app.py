@@ -3082,7 +3082,12 @@ def render_analysis(d, report, color, commodity="KC"):
                         marker=dict(color=_gcolor[g], size=6, opacity=0.65,
                                     line=dict(width=0.4, color="white")),
                         text=pd.to_datetime(gd).strftime("%d %b %Y"),
-                        hovertemplate=f"<b>%{{text}}</b><br>{xlabel}: %{{x:.1f}}k<br>ΔPx%%: %{{y:+.2f}}%%<extra></extra>",
+                        customdata=np.column_stack([
+                            [f"{v:.1f}k" for v in gx],
+                            [f"{v:+.2f}%" for v in gy],
+                        ]),
+                        hovertemplate=(f"<b>%{{text}}</b><br>{xlabel}: %{{customdata[0]}}<br>"
+                                       "ΔPx%: %{customdata[1]}<extra></extra>"),
                         showlegend=False), row=r, col=c)
                     if len(gx) >= 4:
                         sl, ic = np.polyfit(gx, gy, 1)
@@ -3133,9 +3138,13 @@ def render_analysis(d, report, color, commodity="KC"):
                     colorbar=dict(title=dict(text="Px Δ%", side="right"), thickness=12, len=0.75,
                                   tickfont=dict(size=9))),
                 text=pd.to_datetime(dates_v).strftime("%d %b %Y"),
-                customdata=dPx_v,
-                hovertemplate="<b>%{text}</b><br>ΔLong: %{x:+.1f}k<br>ΔShort: %{y:+.1f}k<br>"
-                              "ΔPx%%: %{customdata:+.2f}%%<extra></extra>",
+                customdata=np.column_stack([
+                    [f"{v:+.1f}k" for v in dL_v],
+                    [f"{v:+.1f}k" for v in dS_v],
+                    [f"{v:+.2f}%" for v in dPx_v],
+                ]),
+                hovertemplate="<b>%{text}</b><br>ΔLong: %{customdata[0]}<br>ΔShort: %{customdata[1]}<br>"
+                              "ΔPx%: %{customdata[2]}<extra></extra>",
             ))
             _lo = float(min(dL_v.min(), dS_v.min()))
             _hi = float(max(dL_v.max(), dS_v.max()))
