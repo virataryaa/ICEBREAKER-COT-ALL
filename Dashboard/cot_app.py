@@ -3140,43 +3140,44 @@ def render_analysis(d, report, color, commodity="KC"):
                            scaleanchor="x", scaleratio=1, constrain="domain"))
             st.plotly_chart(fig_map, width='stretch')
 
-            # ── Same flow map with joint density contour underlay ───────────
+            # ── Same flow map, coloured by how extreme that week's GROSS level was ──
             st.markdown(
                 "<div style='font-size:.82rem;font-weight:700;color:#374151;"
                 "margin:20px 0 4px;letter-spacing:.02em'>"
-                "LONG vs SHORT FLOW MAP — DENSITY CONTOUR</div>"
+                "LONG vs SHORT FLOW MAP — HISTORICAL EXTREMITY</div>"
                 "<p style='font-size:.7rem;color:#9ca3af;margin:0 0 10px'>"
-                "Same points as above, with shaded contours showing where weekly observations "
-                "cluster most densely — darker = more historical weeks landed in that combination "
-                "of ΔLong / ΔShort.</p>",
+                "Same points as above (axes are still weekly Δ), but colour now shows how extreme "
+                "that week's <b>gross level</b> was vs. its own history — blue = gross long near an "
+                "all-time high for that week, red = gross short near an all-time high. Marker size "
+                "scales with whichever leg is more extreme, so weeks where both legs are near record "
+                "levels simultaneously still stand out even though the colour cancels toward white.</p>",
                 unsafe_allow_html=True)
 
+            grossL_v = (sum(d[c].astype(float) for c in long_cols))[fmask].values
+            grossS_v = (sum(d[c].astype(float) for c in short_cols))[fmask].values
+            pctL_v = scipy_stats.rankdata(grossL_v) / len(grossL_v) * 100
+            pctS_v = scipy_stats.rankdata(grossS_v) / len(grossS_v) * 100
+            signed_extreme = pctL_v - pctS_v                       # + = long more extreme, - = short more extreme
+            magnitude      = np.maximum(pctL_v, pctS_v)            # how extreme the more-stretched leg is
+            marker_size    = 5 + (magnitude / 100) * 11            # 5–16 px
+
             fig_dens = go.Figure()
-            fig_dens.add_trace(go.Histogram2dContour(
-                x=dL_v, y=dS_v,
-                colorscale=[[0, "rgba(99,102,241,0)"], [0.35, "rgba(129,140,248,0.35)"],
-                            [0.7, "rgba(99,102,241,0.65)"], [1, "rgba(67,56,202,0.9)"]],
-                showscale=True,
-                colorbar=dict(title=dict(text="Density", side="right"), thickness=12, len=0.75,
-                              tickfont=dict(size=9), x=1.08),
-                contours=dict(coloring="fill", showlines=False),
-                line=dict(width=0),
-                ncontours=12,
-                hoverinfo="skip",
-                opacity=0.85,
-            ))
             fig_dens.add_trace(go.Scatter(
                 x=dL_v, y=dS_v, mode="markers",
                 marker=dict(
-                    color=dPx_v, colorscale=[[0, "#dc2626"], [0.5, "#f4f4f5"], [1, "#16a34a"]],
-                    cmin=-_clim, cmax=_clim, size=6, opacity=0.85,
+                    color=signed_extreme, colorscale=[[0, "#dc2626"], [0.5, "#f4f4f5"], [1, "#2563eb"]],
+                    cmin=-100, cmax=100, size=marker_size, opacity=0.85,
                     line=dict(width=0.5, color="white"),
-                    colorbar=dict(title=dict(text="Px Δ%", side="right"), thickness=12, len=0.75,
-                                  tickfont=dict(size=9), x=1.20)),
+                    colorbar=dict(title=dict(text="Extremity", side="right"), thickness=12, len=0.75,
+                                  tickfont=dict(size=9),
+                                  tickvals=[-100, -50, 0, 50, 100],
+                                  ticktext=["Short<br>ATH", "Short", "—", "Long", "Long<br>ATH"])),
                 text=pd.to_datetime(dates_v).strftime("%d %b %Y"),
-                customdata=dPx_v,
-                hovertemplate="<b>%{text}</b><br>ΔLong: %{x:+.1f}k<br>ΔShort: %{y:+.1f}k<br>"
-                              "ΔPx%%: %{customdata:+.2f}%%<extra></extra>",
+                customdata=np.column_stack([pctL_v, pctS_v, grossL_v, grossS_v]),
+                hovertemplate="<b>%{text}</b><br>ΔLong: %{x:+.1f}k · ΔShort: %{y:+.1f}k<br>"
+                              "Gross Long: %{customdata[2]:,.0f}  (pct %{customdata[0]:.0f})<br>"
+                              "Gross Short: %{customdata[3]:,.0f}  (pct %{customdata[1]:.0f})"
+                              "<extra></extra>",
                 showlegend=False,
             ))
             fig_dens.add_shape(type="line", x0=0, x1=0, y0=_lo, y1=_hi,
@@ -3186,7 +3187,7 @@ def render_analysis(d, report, color, commodity="KC"):
             fig_dens.add_shape(type="line", x0=_lo, x1=_hi, y0=_lo, y1=_hi,
                                line=dict(color="#9ca3af", width=1, dash="dot"))
             fig_dens.update_layout(**_BASE, height=460,
-                title=dict(text=f"{flow_pick}: Δ{long_col}  vs  Δ{short_col}  ·  density contour + price move",
+                title=dict(text=f"{flow_pick}: Δ{long_col}  vs  Δ{short_col}  ·  gross-level historical extremity",
                            font=dict(size=11, color="#374151"), x=0),
                 margin=dict(l=60, r=90, t=44, b=50),
                 xaxis=dict(**_ax(), title_text=f"Δ{long_col} (k lots)", range=_rng,
