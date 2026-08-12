@@ -277,6 +277,23 @@ def load_rollex(commodity: str) -> pd.DataFrame:
     return df.sort_values("Date").reset_index(drop=True)
 
 
+@st.cache_data(ttl=600)
+def load_rollex_ohlc(commodity: str) -> pd.DataFrame:
+    """Daily OHLC continuous price, for the COT nowcast candlestick charts."""
+    fname = ROLLEX_MAP.get(commodity)
+    if fname is None:
+        return pd.DataFrame()
+    path = ROLLEX_DIR / fname
+    if not path.exists():
+        return pd.DataFrame()
+    _cols = ["rollex_open", "rollex_high", "rollex_low", "rollex_px"]
+    df = pd.read_parquet(path, columns=_cols)
+    df.index = pd.to_datetime(df.index)
+    df.index.name = "Date"
+    df = df.reset_index()
+    return df.dropna(subset=_cols).sort_values("Date").reset_index(drop=True)
+
+
 @st.cache_data(ttl=3600)
 def _build_var_df(commodity: str) -> pd.DataFrame:
     rx = load_rollex(commodity)
@@ -3245,6 +3262,160 @@ def render_analysis(d, report, color, commodity="KC"):
                 f"are expected negative (bearish per k-lot) — a sign flipped from expectation usually "
                 f"means that flow has no real price impact once the other three are controlled for.</p>",
                 unsafe_allow_html=True)
+
+            # ── Reverse regression: how much flow follows price ─────────────
+            def _simple_ols(x, y):
+                mask = ~(np.isnan(x) | np.isnan(y))
+                x, y = x[mask], y[mask]
+                n = len(x)
+                if n < 8:
+                    return dict(beta=np.nan, se=np.nan, p=np.nan, r2=np.nan, n=n)
+                X = np.column_stack([x, np.ones_like(x)])
+                coef, _, rank, _ = np.linalg.lstsq(X, y, rcond=None)
+                beta, _alpha = coef
+                y_hat  = X @ coef
+                ss_res = float(np.sum((y - y_hat) ** 2))
+                ss_tot = float(np.sum((y - y.mean()) ** 2))
+                r2 = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
+                dof = n - 2
+                se = p = np.nan
+                if dof > 0 and rank == 2:
+                    sigma2  = ss_res / dof
+                    XtX_inv = np.linalg.inv(X.T @ X)
+                    se = float(np.sqrt(sigma2 * XtX_inv[0, 0]))
+                    if se > 0:
+                        p = float(2 * scipy_stats.t.sf(abs(beta / se), dof))
+                return dict(beta=float(beta), se=se, p=p, r2=r2, n=n)
+
+            same_week = _simple_ols(dPx_v, dnet)
+            lag_week  = _simple_ols(dPx_v[:-1], dnet[1:])
+
+            st.markdown(
+                "<div style='font-size:.82rem;font-weight:700;color:#374151;"
+                "margin:18px 0 4px;letter-spacing:.02em'>"
+                "FLOW SENSITIVITY TO PRICE  ·  k-lots of net flow per 1% price move</div>"
+                "<p style='font-size:.7rem;color:#9ca3af;margin:0 0 10px'>"
+                "The panel above asks 'does flow move price?'. This asks the reverse question — "
+                "'does price move flow?' i.e. do specs chase price. <b>Same-week</b> regresses this "
+                "week's Δnet on this week's ΔPx% (useful for nowcasting the in-progress week, but "
+                "price and flow are determined together so it isn't causal). <b>Lagged</b> regresses "
+                "this week's Δnet on <i>last</i> week's ΔPx%, which breaks that simultaneity and is "
+                "the cleaner test of genuine trend-chasing behaviour.</p>",
+                unsafe_allow_html=True)
+
+            def _flow_card(col, label, res, note):
+                with col:
+                    if pd.isna(res["beta"]):
+                        st.markdown(f"<div style='font-size:.75rem;color:#374151'><b>{label}</b><br>"
+                                     f"<i>Not enough data</i></div>", unsafe_allow_html=True)
+                        return
+                    sig = pd.notna(res["p"]) and res["p"] < 0.05
+                    clr = "#1a56db" if sig else "#94a3b8"
+                    st.markdown(
+                        f"<div style='font-size:.75rem;color:#374151'><b>{label}</b><br>"
+                        f"{res['beta']:+.2f}k lots per 1% ΔPx<br>"
+                        f"<span style='color:{clr}'>p = {res['p']:.3f}{' (significant)' if sig else ''}</span><br>"
+                        f"<span style='color:#9ca3af;font-size:.68rem'>R² = {res['r2']:.3f} · n = {res['n']}"
+                        f" · {note}</span></div>",
+                        unsafe_allow_html=True)
+
+            _fc1, _fc2 = st.columns(2)
+            _flow_card(_fc1, "Same-week  (Δnet(t) ~ ΔPx(t))", same_week, "nowcast-style")
+            _flow_card(_fc2, "Lagged  (Δnet(t) ~ ΔPx(t-1))",  lag_week,  "causal-style")
+
+            # ── COT nowcast: project current-week position from price since cutoff ──
+            if commodity in ROLLEX_MAP:
+                st.markdown(
+                    "<div style='font-size:.82rem;font-weight:700;color:#374151;"
+                    "margin:18px 0 4px;letter-spacing:.02em'>"
+                    f"{flow_pick.upper()} NOWCAST  ·  projected position from price action since last report</div>"
+                    "<p style='font-size:.7rem;color:#9ca3af;margin:0 0 10px'>"
+                    "COT is always 3+ days stale. Using the same-week β above, this projects where "
+                    "net position likely sits <i>right now</i> by applying that β to the price move "
+                    "since the last published cutoff — an approximation (it assumes this week behaves "
+                    "like an average historical week), not a forecast.</p>",
+                    unsafe_allow_html=True)
+
+                rx_daily = load_rollex_ohlc(commodity)
+                if rx_daily.empty or pd.isna(same_week["beta"]):
+                    st.info("Not enough Rollex/regression data to build a nowcast for this selection.")
+                else:
+                    last_cot_date  = pd.to_datetime(d["Date"].iloc[-1])
+                    cutoff_price   = float(d["Px"].iloc[-1])
+                    grossL_last    = float(sum(d[c].iloc[-1] for c in long_cols))
+                    grossS_last    = float(sum(d[c].iloc[-1] for c in short_cols))
+                    net_last       = (grossL_last - grossS_last) / 1000
+
+                    since = rx_daily[rx_daily["Date"] > last_cot_date].reset_index(drop=True)
+                    live_price = float(since["rollex_px"].iloc[-1]) if len(since) else cutoff_price
+                    live_date  = since["Date"].iloc[-1] if len(since) else last_cot_date
+                    live_chg   = (live_price / cutoff_price - 1) * 100
+
+                    beta = same_week["beta"]
+                    sim_prices = sorted({round(live_price * (1 + k / 100), 2) for k in range(-3, 4)}, reverse=True)
+                    sim_rows = []
+                    for sp in sim_prices:
+                        chg = (sp / cutoff_price - 1) * 100
+                        impact = beta * chg
+                        sim_rows.append(dict(**{"Sim. Price": sp, "Chg vs cutoff": f"{chg:+.2f}%",
+                                                 "COT Impact (k lots)": f"{impact:+.1f}k",
+                                                 "Proj. Net (k lots)": f"{net_last + impact:+.1f}k"}))
+                    sim_df = pd.DataFrame(sim_rows)
+
+                    _live_clr = "#16a34a" if live_chg >= 0 else "#dc2626"
+                    st.markdown(
+                        f"<p style='font-size:.75rem;color:#374151'>Last published: <b>{last_cot_date.date()}</b> "
+                        f"net {flow_pick} <b>{net_last:+.1f}k lots</b> @ cutoff price <b>{cutoff_price:.2f}</b>. "
+                        f"Live: <b>{live_date.date()}</b> @ <b>{live_price:.2f}</b> "
+                        f"(<span style='color:{_live_clr}'>{live_chg:+.2f}%</span> "
+                        f"since cutoff).</p>", unsafe_allow_html=True)
+                    st.dataframe(sim_df, width='stretch', hide_index=True)
+
+                    _cndl = rx_daily[rx_daily["Date"] >= last_cot_date - pd.Timedelta(days=30)]
+                    fig_now = go.Figure(go.Candlestick(
+                        x=_cndl["Date"], open=_cndl["rollex_open"], high=_cndl["rollex_high"],
+                        low=_cndl["rollex_low"], close=_cndl["rollex_px"],
+                        increasing_line_color="#16a34a", decreasing_line_color="#dc2626", name="Price"))
+                    fig_now.add_hline(y=cutoff_price, line=dict(color="#1a56db", width=1, dash="dash"),
+                                       annotation_text="Last COT cutoff", annotation_font_size=9)
+                    fig_now.update_layout(**_BASE, height=300, showlegend=False,
+                        title=dict(text=f"{commodity}: price since last COT cutoff",
+                                   font=dict(size=11, color="#374151"), x=0),
+                        margin=dict(l=50, r=20, t=40, b=30), xaxis_rangeslider_visible=False,
+                        xaxis=dict(**_ax(x=True)), yaxis=dict(**_ax(), title_text="Price"))
+                    st.plotly_chart(fig_now, width='stretch')
+
+                    _hist_px = rx_daily.tail(260).reset_index(drop=True)
+                    net_hist = pd.DataFrame({
+                        "Date": d["Date"],
+                        "Net": (sum(d[c].astype(float) for c in long_cols)
+                                - sum(d[c].astype(float) for c in short_cols)) / 1000})
+                    net_hist = net_hist[net_hist["Date"] >= _hist_px["Date"].min()]
+
+                    fig_ov = make_subplots(specs=[[{"secondary_y": True}]])
+                    fig_ov.add_trace(go.Candlestick(
+                        x=_hist_px["Date"], open=_hist_px["rollex_open"], high=_hist_px["rollex_high"],
+                        low=_hist_px["rollex_low"], close=_hist_px["rollex_px"], name="Price",
+                        increasing_line_color="#a7f3d0", decreasing_line_color="#fecaca", showlegend=False),
+                        secondary_y=False)
+                    fig_ov.add_trace(go.Scatter(
+                        x=net_hist["Date"], y=net_hist["Net"], mode="lines",
+                        line=dict(color="#1a56db", width=1.4, shape="hv"), name="Published Net"),
+                        secondary_y=True)
+                    fig_ov.add_trace(go.Scatter(
+                        x=[last_cot_date, live_date], y=[net_last, net_last + beta * live_chg],
+                        mode="lines+markers", line=dict(color="#7c3aed", width=2, dash="dot"),
+                        marker=dict(size=6), name="Projected"), secondary_y=True)
+                    fig_ov.update_layout(**_BASE, height=380,
+                        title=dict(text=f"{commodity}: 250-day price & {flow_pick} net  (published & projected)",
+                                   font=dict(size=11, color="#374151"), x=0),
+                        margin=dict(l=60, r=60, t=44, b=30), xaxis_rangeslider_visible=False,
+                        legend=dict(orientation="h", y=1.1, x=1, xanchor="right", font=dict(size=9)))
+                    fig_ov.update_xaxes(**_ax(x=True))
+                    fig_ov.update_yaxes(title_text="Price", secondary_y=False, **_ax())
+                    fig_ov.update_yaxes(title_text="Net (k lots)", secondary_y=True,
+                                         showgrid=False, tickfont=dict(size=9))
+                    st.plotly_chart(fig_ov, width='stretch')
 
     # scatter sections moved to dedicated Correlation tab (render_correlation)
 
