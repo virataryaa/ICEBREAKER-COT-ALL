@@ -3283,7 +3283,6 @@ def render_analysis(d, report, color, commodity="KC"):
                 return dict(beta=float(beta), se=se, p=p, r2=r2, n=n)
 
             same_week = _simple_ols(dPx_v, dnet)
-            lag_week  = _simple_ols(dPx_v[:-1], dnet[1:])
 
             st.markdown(
                 "<div style='font-size:.82rem;font-weight:700;color:#374151;"
@@ -3307,9 +3306,8 @@ def render_analysis(d, report, color, commodity="KC"):
                         f" · {note}</span></div>",
                         unsafe_allow_html=True)
 
-            _fc1, _fc2 = st.columns(2)
+            _fc1, _ = st.columns(2)
             _flow_card(_fc1, "Same-week  (Δnet(t) ~ ΔPx(t))", same_week, "nowcast-style")
-            _flow_card(_fc2, "Lagged  (Δnet(t) ~ ΔPx(t-1))",  lag_week,  "causal-style")
 
             # ── COT nowcast: project current-week position from price since cutoff ──
             if commodity in ROLLEX_MAP:
