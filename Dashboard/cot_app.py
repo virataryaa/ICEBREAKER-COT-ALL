@@ -3140,66 +3140,6 @@ def render_analysis(d, report, color, commodity="KC"):
                            scaleanchor="x", scaleratio=1, constrain="domain"))
             st.plotly_chart(fig_map, width='stretch')
 
-            # ── Gross-level historical extremity, as a time strip synced to price ──
-            st.markdown(
-                "<div style='font-size:.82rem;font-weight:700;color:#374151;"
-                "margin:20px 0 4px;letter-spacing:.02em'>"
-                "GROSS LONG / SHORT — HISTORICAL EXTREMITY OVER TIME</div>"
-                "<p style='font-size:.7rem;color:#9ca3af;margin:0 0 10px'>"
-                "Each week's <b>gross level</b> ranked against its own full history. Darker blue = gross "
-                "long closer to an all-time high that week; darker red = gross short closer to an "
-                "all-time high. Price sits on the same time axis above so you can eyeball whether price "
-                "moves coincide with either leg being historically stretched.</p>",
-                unsafe_allow_html=True)
-
-            grossL_v = (sum(d[c].astype(float) for c in long_cols))[fmask].values
-            grossS_v = (sum(d[c].astype(float) for c in short_cols))[fmask].values
-            pctL_v = scipy_stats.rankdata(grossL_v) / len(grossL_v) * 100
-            pctS_v = scipy_stats.rankdata(grossS_v) / len(grossS_v) * 100
-            dates_dt = pd.to_datetime(dates_v)
-
-            fig_ext = make_subplots(
-                rows=3, cols=1, shared_xaxes=True,
-                row_heights=[0.44, 0.28, 0.28], vertical_spacing=0.035,
-                subplot_titles=("Weekly Price Δ%", None, None))
-
-            fig_ext.add_trace(go.Scatter(
-                x=dates_dt, y=dPx_v, mode="lines", line=dict(color="#374151", width=1.1),
-                fill="tozeroy", fillcolor="rgba(55,65,81,0.10)",
-                hovertemplate="%{x|%d %b %Y}<br>ΔPx%%: %{y:+.2f}%%<extra></extra>",
-                showlegend=False), row=1, col=1)
-            fig_ext.add_hline(y=0, line=dict(color="#d1d5db", width=1), row=1, col=1)
-
-            fig_ext.add_trace(go.Heatmap(
-                z=[pctL_v], x=dates_dt, y=[f"Gross {long_col}"],
-                customdata=[grossL_v],
-                colorscale=[[0, "#eff6ff"], [1, "#1d4ed8"]], zmin=0, zmax=100,
-                colorbar=dict(title=dict(text="Long pctl", side="right"), thickness=10, len=0.28,
-                              y=0.5, yanchor="middle", tickfont=dict(size=8)),
-                hovertemplate="%{x|%d %b %Y}<br>Gross Long: %{customdata:,.0f}<br>"
-                              "Percentile: %{z:.0f}<extra></extra>"), row=2, col=1)
-
-            fig_ext.add_trace(go.Heatmap(
-                z=[pctS_v], x=dates_dt, y=[f"Gross {short_col}"],
-                customdata=[grossS_v],
-                colorscale=[[0, "#fef2f2"], [1, "#b91c1c"]], zmin=0, zmax=100,
-                colorbar=dict(title=dict(text="Short pctl", side="right"), thickness=10, len=0.28,
-                              y=0.12, yanchor="middle", tickfont=dict(size=8)),
-                hovertemplate="%{x|%d %b %Y}<br>Gross Short: %{customdata:,.0f}<br>"
-                              "Percentile: %{z:.0f}<extra></extra>"), row=3, col=1)
-
-            fig_ext.update_layout(**_BASE, height=520,
-                title=dict(text=f"{flow_pick}: {long_col} / {short_col}  ·  gross-level historical extremity",
-                           font=dict(size=11, color="#374151"), x=0),
-                margin=dict(l=110, r=90, t=54, b=40))
-            fig_ext.update_xaxes(**_ax(x=True), row=1, col=1, showticklabels=False)
-            fig_ext.update_xaxes(**_ax(x=True), row=2, col=1, showticklabels=False)
-            fig_ext.update_xaxes(**_ax(x=True), row=3, col=1)
-            fig_ext.update_yaxes(**_ax(), row=1, col=1, title_text="Δ%")
-            fig_ext.update_yaxes(showgrid=False, tickfont=dict(size=9), row=2, col=1)
-            fig_ext.update_yaxes(showgrid=False, tickfont=dict(size=9), row=3, col=1)
-            st.plotly_chart(fig_ext, width='stretch')
-
             # ── Four-way regression: buying / liquidation / selling / covering ──
             # A single beta_long, beta_short model forces buying and liquidating
             # the SAME leg to have equal-and-opposite impact (it's one straight
