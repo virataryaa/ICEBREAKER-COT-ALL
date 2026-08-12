@@ -3146,11 +3146,13 @@ def render_analysis(d, report, color, commodity="KC"):
                 "margin:20px 0 4px;letter-spacing:.02em'>"
                 "LONG vs SHORT FLOW MAP — HISTORICAL EXTREMITY</div>"
                 "<p style='font-size:.7rem;color:#9ca3af;margin:0 0 10px'>"
-                "Same points as above (axes are still weekly Δ), but colour now shows how extreme "
+                "Same points as above (axes are still weekly Δ), but fill colour now shows how extreme "
                 "that week's <b>gross level</b> was vs. its own history — blue = gross long near an "
                 "all-time high for that week, red = gross short near an all-time high. Marker size "
                 "scales with whichever leg is more extreme, so weeks where both legs are near record "
-                "levels simultaneously still stand out even though the colour cancels toward white.</p>",
+                "levels simultaneously still stand out even though the fill colour cancels toward white. "
+                "The <b>outline</b> ring is that week's price move — green = price up, red = price down, "
+                "thicker ring = bigger move.</p>",
                 unsafe_allow_html=True)
 
             grossL_v = (sum(d[c].astype(float) for c in long_cols))[fmask].values
@@ -3160,23 +3162,26 @@ def render_analysis(d, report, color, commodity="KC"):
             signed_extreme = pctL_v - pctS_v                       # + = long more extreme, - = short more extreme
             magnitude      = np.maximum(pctL_v, pctS_v)            # how extreme the more-stretched leg is
             marker_size    = 5 + (magnitude / 100) * 11            # 5–16 px
+            outline_color  = np.where(dPx_v >= 0, "#16a34a", "#dc2626")
+            outline_width  = 0.6 + 2.4 * np.clip(np.abs(dPx_v) / _clim, 0, 1)   # 0.6–3.0 px
 
             fig_dens = go.Figure()
             fig_dens.add_trace(go.Scatter(
                 x=dL_v, y=dS_v, mode="markers",
                 marker=dict(
                     color=signed_extreme, colorscale=[[0, "#dc2626"], [0.5, "#f4f4f5"], [1, "#2563eb"]],
-                    cmin=-100, cmax=100, size=marker_size, opacity=0.85,
-                    line=dict(width=0.5, color="white"),
+                    cmin=-100, cmax=100, size=marker_size, opacity=0.9,
+                    line=dict(width=outline_width, color=outline_color),
                     colorbar=dict(title=dict(text="Extremity", side="right"), thickness=12, len=0.75,
                                   tickfont=dict(size=9),
                                   tickvals=[-100, -50, 0, 50, 100],
                                   ticktext=["Short<br>ATH", "Short", "—", "Long", "Long<br>ATH"])),
                 text=pd.to_datetime(dates_v).strftime("%d %b %Y"),
-                customdata=np.column_stack([pctL_v, pctS_v, grossL_v, grossS_v]),
+                customdata=np.column_stack([pctL_v, pctS_v, grossL_v, grossS_v, dPx_v]),
                 hovertemplate="<b>%{text}</b><br>ΔLong: %{x:+.1f}k · ΔShort: %{y:+.1f}k<br>"
                               "Gross Long: %{customdata[2]:,.0f}  (pct %{customdata[0]:.0f})<br>"
-                              "Gross Short: %{customdata[3]:,.0f}  (pct %{customdata[1]:.0f})"
+                              "Gross Short: %{customdata[3]:,.0f}  (pct %{customdata[1]:.0f})<br>"
+                              "ΔPx%%: %{customdata[4]:+.2f}%%"
                               "<extra></extra>",
                 showlegend=False,
             ))
