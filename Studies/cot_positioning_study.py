@@ -16,7 +16,15 @@ positioning hypotheses, run independently of the dashboard.
                                          buying exhaustion -> forced long
                                          liquidation and a decline over the
                                          following weeks. Also run as an
-                                         actual short-only backtest.
+                                         actual short-only backtest, plus a
+                                         5b sweep with loosened filters
+                                         pooled across all four commodities.
+  Study 6  Short Squeeze Saturation   — mirror of Study 5 on the short leg:
+           Index                       gross Spec Short at a historical
+                                         high, still adding shorts, price
+                                         doesn't fall -> selling exhaustion
+                                         -> squeeze higher. Same long-only
+                                         backtest + 6b loosened/pooled sweep.
 
 Run:  python cot_positioning_study.py
 """
@@ -279,6 +287,128 @@ def study5_saturation(d: pd.DataFrame, horizons=(1, 2, 4, 8), hold=4) -> tuple:
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# Study 6 — Short Squeeze Saturation Index (mirror of Study 5)
+# Gross Spec Short at a point-in-time historical high, still getting fresh
+# selling THIS week (Delta Short > 0), but price fails to confirm (price
+# flat/up, DeltaPx>=0). Hypothesis: selling exhaustion -> forced short
+# covering -> a squeeze higher over the following weeks.
+# ══════════════════════════════════════════════════════════════════════════
+def study6_short_saturation(d: pd.DataFrame, horizons=(1, 2, 4, 8), hold=4) -> tuple:
+    pctS   = expanding_percentile(d["Spec Short"])
+    dShort = d["Spec Short"].diff().values
+    dPx    = (d["rollex_px"].pct_change() * 100).values
+
+    saturated = (pctS >= 90) & (dShort > 0) & (dPx >= 0)
+
+    rows = []
+    for h in horizons:
+        fwd = forward_return(d["rollex_px"], h)
+        diff, p, ci = block_bootstrap_pvalue(saturated, fwd)
+        rows.append(dict(study="S6", leg="short_saturation",
+                          bucket=f"pctl>=90 & dShort>0 & dPx>=0 (n={int(np.nansum(saturated))})",
+                          horizon=h, n=int(np.nansum(saturated)), mean_diff_pct=diff, p=p, ci=ci,
+                          note="target = fwd price return"))
+
+        # Mechanism check: does gross Spec Short actually FALL (get covered)
+        # in the following weeks after a saturation signal?
+        fwd_dshort = (d["Spec Short"].shift(-h).values - d["Spec Short"].values) / 1000.0
+        diff_s, p_s, ci_s = block_bootstrap_pvalue(saturated, fwd_dshort)
+        rows.append(dict(study="S6", leg="short_saturation_mechanism",
+                          bucket=f"pctl>=90 & dShort>0 & dPx>=0 (n={int(np.nansum(saturated))})",
+                          horizon=h, n=int(np.nansum(saturated)), mean_diff_pct=diff_s, p=p_s, ci=ci_s,
+                          note="target = fwd chg in gross Spec Short (k lots), NOT price"))
+
+    # ── Actual backtest: LONG for `hold` weeks after a saturation signal,
+    # flat otherwise. Same lagged-entry / no-pyramiding rules as Study 5.
+    n = len(d)
+    pos = np.zeros(n)
+    for i in np.where(saturated)[0]:
+        entry = i + 1
+        if entry >= n:
+            continue
+        pos[entry: min(entry + hold, n)] = 1.0
+
+    px = d["rollex_px"].values
+    ret_1w = np.nan_to_num(np.r_[np.nan, px[1:] / px[:-1] - 1.0])
+    strat_ret = pos * ret_1w
+    cost = np.r_[0, np.abs(np.diff(pos))] * (COST_BPS / 10000.0)
+
+    bt = pd.DataFrame(dict(Date=d["Date"].values, ret=strat_ret - cost, bh_ret=ret_1w, pos=pos))
+    return rows, bt
+
+
+def saturation_mask_short(d: pd.DataFrame, extremity_thresh: float, price_mode: str) -> np.ndarray:
+    pctS   = expanding_percentile(d["Spec Short"])
+    dShort = d["Spec Short"].diff().values
+    dPx_s  = d["rollex_px"].pct_change() * 100
+    if price_mode == "ge0":
+        px_ok = (dPx_s >= 0).values
+    elif price_mode == "top_third":
+        px_ok = (expanding_percentile(dPx_s) >= 67)
+    else:
+        raise ValueError(price_mode)
+    return (pctS >= extremity_thresh) & (dShort > 0) & px_ok
+
+
+def study6b_pooled_sweep(data_by_sym: dict, horizons=(1, 2, 4, 8)) -> list:
+    rows = []
+    combos = [(90, "ge0"), (85, "ge0"), (80, "ge0"),
+              (90, "top_third"), (85, "top_third"), (80, "top_third")]
+    for extremity, price_mode in combos:
+        masks = {sym: saturation_mask_short(d, extremity, price_mode) for sym, d in data_by_sym.items()}
+        for h in horizons:
+            groups_px = [(masks[sym], forward_return(d["rollex_px"], h)) for sym, d in data_by_sym.items()]
+            diff, p, ci, n = pooled_block_bootstrap_pvalue(groups_px)
+            rows.append(dict(study="S6b", leg="pooled_short_saturation",
+                              bucket=f"pctl>={extremity} & dShort>0 & px={price_mode}", horizon=h,
+                              n=n, mean_diff_pct=diff, p=p, ci=ci,
+                              note="target=fwd price return, POOLED across KC/CC/SB/CT"))
+
+            groups_mech = [(masks[sym], (d["Spec Short"].shift(-h).values - d["Spec Short"].values) / 1000.0)
+                           for sym, d in data_by_sym.items()]
+            diff_s, p_s, ci_s, n_s = pooled_block_bootstrap_pvalue(groups_mech)
+            rows.append(dict(study="S6b", leg="pooled_short_saturation_mechanism",
+                              bucket=f"pctl>={extremity} & dShort>0 & px={price_mode}", horizon=h,
+                              n=n_s, mean_diff_pct=diff_s, p=p_s, ci=ci_s,
+                              note="target=fwd chg gross Spec Short (k lots), POOLED"))
+    return rows
+
+
+def pooled_short_saturation_backtest(data_by_sym: dict, extremity=80, price_mode="top_third", hold=4) -> pd.DataFrame:
+    per_sym_bt = {}
+    for sym, d in data_by_sym.items():
+        mask = saturation_mask_short(d, extremity, price_mode)
+        n = len(d)
+        pos = np.zeros(n)
+        for i in np.where(mask)[0]:
+            entry = i + 1
+            if entry >= n:
+                continue
+            pos[entry: min(entry + hold, n)] = 1.0
+        px = d["rollex_px"].values
+        ret_1w = np.nan_to_num(np.r_[np.nan, px[1:] / px[:-1] - 1.0])
+        strat_ret = pos * ret_1w
+        cost = np.r_[0, np.abs(np.diff(pos))] * (COST_BPS / 10000.0)
+        per_sym_bt[sym] = pd.DataFrame(dict(Date=d["Date"].values, ret=strat_ret - cost,
+                                             bh_ret=ret_1w, pos=pos)).rename(
+            columns={"ret": f"ret_{sym}", "bh_ret": f"bh_{sym}", "pos": f"pos_{sym}"})
+
+    merged = None
+    for bt in per_sym_bt.values():
+        merged = bt if merged is None else merged.merge(bt, on="Date", how="inner")
+
+    ret_cols = [c for c in merged.columns if c.startswith("ret_")]
+    bh_cols  = [c for c in merged.columns if c.startswith("bh_")]
+    pos_cols = [c for c in merged.columns if c.startswith("pos_")]
+    return pd.DataFrame(dict(
+        Date=merged["Date"],
+        ret=merged[ret_cols].mean(axis=1),
+        bh_ret=merged[bh_cols].mean(axis=1),
+        pos=merged[pos_cols].abs().sum(axis=1).clip(upper=1),
+    ))
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # Pooled significance: n=17-38 events per commodity in Study 5 is too thin
 # to trust. This resamples blocks WITHIN each commodity (preserving its own
 # autocorrelation) then pools the resample across all four for one combined
@@ -419,13 +549,15 @@ def main():
         r2, bt2 = study2_divergence(d)
         r4 = study4_squeeze(d)
         r5, bt5 = study5_saturation(d)
-        for r in r1 + r2 + r4 + r5:
+        r6, bt6 = study6_short_saturation(d)
+        for r in r1 + r2 + r4 + r5 + r6:
             r["symbol"] = sym
-        all_rows += r1 + r2 + r4 + r5
+        all_rows += r1 + r2 + r4 + r5 + r6
 
         stats2 = backtest_stats(bt2)
         stats5 = backtest_stats(bt5)
-        bt_summaries[sym] = dict(divergence=stats2, saturation=stats5)
+        stats6 = backtest_stats(bt6)
+        bt_summaries[sym] = dict(divergence=stats2, saturation=stats5, short_saturation=stats6)
 
         print(f"\n  Study 2 backtest ({sym}, long/flat/short on Comm-vs-Spec divergence, "
               f"{COST_BPS}bps cost, signal lagged 1wk):")
@@ -437,6 +569,13 @@ def main():
         print(f"\n  Study 5 backtest ({sym}, short-only on Spec Saturation Index, "
               f"4wk hold, {COST_BPS}bps cost, signal lagged 1wk):")
         for label, s in stats5.items():
+            print(f"    {label:28s}  weeks={s['weeks']:4d}  strat_ret={s['total_ret_pct']:+7.1f}%  "
+                  f"b&h_ret={s['bh_total_ret_pct']:+7.1f}%  ann_sharpe={s['ann_sharpe']:+.2f}  "
+                  f"max_dd={s['max_dd_pct']:6.1f}%  in_mkt={s['pct_weeks_in_market']:5.1f}%")
+
+        print(f"\n  Study 6 backtest ({sym}, long-only on Short Squeeze Saturation Index, "
+              f"4wk hold, {COST_BPS}bps cost, signal lagged 1wk):")
+        for label, s in stats6.items():
             print(f"    {label:28s}  weeks={s['weeks']:4d}  strat_ret={s['total_ret_pct']:+7.1f}%  "
                   f"b&h_ret={s['bh_total_ret_pct']:+7.1f}%  ann_sharpe={s['ann_sharpe']:+.2f}  "
                   f"max_dd={s['max_dd_pct']:6.1f}%  in_mkt={s['pct_weeks_in_market']:5.1f}%")
@@ -461,6 +600,26 @@ def main():
               f"b&h_ret={s['bh_total_ret_pct']:+7.1f}%  ann_sharpe={s['ann_sharpe']:+.2f}  "
               f"max_dd={s['max_dd_pct']:6.1f}%  in_mkt={s['pct_weeks_in_market']:5.1f}%")
 
+    # ── Study 6b: loosened short-saturation filters, pooled across all 4 commodities ──
+    r6b = study6b_pooled_sweep(data_by_sym)
+    for r in r6b:
+        r["symbol"] = "POOLED(KC+CC+SB+CT)"
+    all_rows += r6b
+
+    print(f"\n\n{'='*70}\nSTUDY 6b - Short Squeeze Saturation Index, loosened + pooled sweep\n{'='*70}")
+    with pd.option_context("display.max_rows", None, "display.width", 160):
+        show6b = pd.DataFrame(r6b)[["leg", "bucket", "horizon", "n", "mean_diff_pct", "p"]].round(3)
+        print(show6b.to_string(index=False))
+
+    bt_pooled6 = pooled_short_saturation_backtest(data_by_sym, extremity=80, price_mode="top_third", hold=4)
+    stats_pooled6 = backtest_stats(bt_pooled6)
+    print(f"\n  Pooled portfolio backtest (equal-weight KC/CC/SB/CT, long-only, "
+          f"pctl>=80 & dShort>0 & px=top_third, 4wk hold, {COST_BPS}bps cost, signal lagged 1wk):")
+    for label, s in stats_pooled6.items():
+        print(f"    {label:28s}  weeks={s['weeks']:4d}  strat_ret={s['total_ret_pct']:+7.1f}%  "
+              f"b&h_ret={s['bh_total_ret_pct']:+7.1f}%  ann_sharpe={s['ann_sharpe']:+.2f}  "
+              f"max_dd={s['max_dd_pct']:6.1f}%  in_mkt={s['pct_weeks_in_market']:5.1f}%")
+
     df = pd.DataFrame(all_rows)
     df["p_bh"] = bh_correct(df["p"].tolist())
 
@@ -477,7 +636,7 @@ def main():
     if len(sig):
         print(sig[["symbol", "study", "bucket", "horizon", "mean_diff_pct", "p_bh"]].to_string(index=False))
     else:
-        print("None. On this data, none of Study 1 / 2 / 4 / 5 clear a false-discovery-corrected "
+        print("None. On this data, none of Study 1 / 2 / 4 / 5 / 6 clear a false-discovery-corrected "
               "bar - treat any single-test 'significant' row above as noise until it does.")
 
     out_path = Path(__file__).parent / "study_results.csv"
