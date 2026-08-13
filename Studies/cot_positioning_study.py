@@ -279,13 +279,140 @@ def study5_saturation(d: pd.DataFrame, horizons=(1, 2, 4, 8), hold=4) -> tuple:
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# Pooled significance: n=17-38 events per commodity in Study 5 is too thin
+# to trust. This resamples blocks WITHIN each commodity (preserving its own
+# autocorrelation) then pools the resample across all four for one combined
+# test — same idea as a fixed-effects meta-analysis, more power than four
+# separate underpowered tests.
+# ══════════════════════════════════════════════════════════════════════════
+def pooled_block_bootstrap_pvalue(groups: list, block=BLOCK, n_boot=N_BOOT) -> tuple:
+    clean = []
+    for mask, y in groups:
+        valid = ~np.isnan(y) & ~np.isnan(mask.astype(float))
+        m, yv = mask[valid], y[valid]
+        if len(yv) > 0:
+            clean.append((m, yv))
+    if not clean:
+        return np.nan, np.nan, np.nan, 0
+    all_mask = np.concatenate([m for m, _ in clean])
+    all_y = np.concatenate([y for _, y in clean])
+    if all_mask.sum() < 8 or (~all_mask).sum() < 8:
+        return np.nan, np.nan, np.nan, int(all_mask.sum())
+    obs_diff = all_y[all_mask].mean() - all_y[~all_mask].mean()
+
+    diffs = np.empty(n_boot)
+    for b in range(n_boot):
+        bm_parts, by_parts = [], []
+        for m, y in clean:
+            n = len(y)
+            if n <= block:
+                bm_parts.append(m); by_parts.append(y); continue
+            n_blocks = int(np.ceil(n / block))
+            starts = RNG.integers(0, n - block, size=n_blocks)
+            idx = np.concatenate([np.arange(s, s + block) for s in starts])[:n]
+            bm_parts.append(m[idx]); by_parts.append(y[idx])
+        bm, by = np.concatenate(bm_parts), np.concatenate(by_parts)
+        if bm.sum() == 0 or (~bm).sum() == 0:
+            diffs[b] = np.nan
+            continue
+        diffs[b] = by[bm].mean() - by[~bm].mean()
+    diffs = diffs[~np.isnan(diffs)]
+    p = float((np.abs(diffs) >= abs(obs_diff)).mean())
+    lo, hi = np.percentile(diffs, [2.5, 97.5])
+    return obs_diff, p, (lo, hi), int(all_mask.sum())
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Study 5b — Spec Saturation Index, loosened filters + pooled across
+# KC/CC/SB/CT. Study 5's exact filter (pctl>=90, dPx<=0) only fires 17-38x
+# per commodity — too sparse to trust either way. This sweeps looser
+# extremity cuts (>=80/85/90) and a relative price filter (bottom-third of
+# that week's own price-move history, instead of a hard zero cutoff), and
+# pools events across all four commodities for real statistical power.
+# ══════════════════════════════════════════════════════════════════════════
+def saturation_mask(d: pd.DataFrame, extremity_thresh: float, price_mode: str) -> np.ndarray:
+    pctL  = expanding_percentile(d["Spec Long"])
+    dLong = d["Spec Long"].diff().values
+    dPx_s = d["rollex_px"].pct_change() * 100
+    if price_mode == "le0":
+        px_ok = (dPx_s <= 0).values
+    elif price_mode == "bottom_third":
+        px_ok = (expanding_percentile(dPx_s) <= 33)
+    else:
+        raise ValueError(price_mode)
+    return (pctL >= extremity_thresh) & (dLong > 0) & px_ok
+
+
+def study5b_pooled_sweep(data_by_sym: dict, horizons=(1, 2, 4, 8)) -> list:
+    rows = []
+    combos = [(90, "le0"), (85, "le0"), (80, "le0"),
+              (90, "bottom_third"), (85, "bottom_third"), (80, "bottom_third")]
+    for extremity, price_mode in combos:
+        masks = {sym: saturation_mask(d, extremity, price_mode) for sym, d in data_by_sym.items()}
+        for h in horizons:
+            groups_px = [(masks[sym], forward_return(d["rollex_px"], h)) for sym, d in data_by_sym.items()]
+            diff, p, ci, n = pooled_block_bootstrap_pvalue(groups_px)
+            rows.append(dict(study="S5b", leg="pooled_saturation",
+                              bucket=f"pctl>={extremity} & dLong>0 & px={price_mode}", horizon=h,
+                              n=n, mean_diff_pct=diff, p=p, ci=ci,
+                              note="target=fwd price return, POOLED across KC/CC/SB/CT"))
+
+            groups_mech = [(masks[sym], (d["Spec Long"].shift(-h).values - d["Spec Long"].values) / 1000.0)
+                           for sym, d in data_by_sym.items()]
+            diff_l, p_l, ci_l, n_l = pooled_block_bootstrap_pvalue(groups_mech)
+            rows.append(dict(study="S5b", leg="pooled_saturation_mechanism",
+                              bucket=f"pctl>={extremity} & dLong>0 & px={price_mode}", horizon=h,
+                              n=n_l, mean_diff_pct=diff_l, p=p_l, ci=ci_l,
+                              note="target=fwd chg gross Spec Long (k lots), POOLED"))
+    return rows
+
+
+def pooled_saturation_backtest(data_by_sym: dict, extremity=80, price_mode="bottom_third", hold=4) -> pd.DataFrame:
+    """Equal-weight portfolio across commodities: each week, average the
+    per-commodity strategy return (0 for commodities not short that week)."""
+    per_sym_bt = {}
+    for sym, d in data_by_sym.items():
+        mask = saturation_mask(d, extremity, price_mode)
+        n = len(d)
+        pos = np.zeros(n)
+        for i in np.where(mask)[0]:
+            entry = i + 1
+            if entry >= n:
+                continue
+            pos[entry: min(entry + hold, n)] = -1.0
+        px = d["rollex_px"].values
+        ret_1w = np.nan_to_num(np.r_[np.nan, px[1:] / px[:-1] - 1.0])
+        strat_ret = pos * ret_1w
+        cost = np.r_[0, np.abs(np.diff(pos))] * (COST_BPS / 10000.0)
+        per_sym_bt[sym] = pd.DataFrame(dict(Date=d["Date"].values, ret=strat_ret - cost,
+                                             bh_ret=ret_1w, pos=pos)).rename(
+            columns={"ret": f"ret_{sym}", "bh_ret": f"bh_{sym}", "pos": f"pos_{sym}"})
+
+    merged = None
+    for bt in per_sym_bt.values():
+        merged = bt if merged is None else merged.merge(bt, on="Date", how="inner")
+
+    ret_cols = [c for c in merged.columns if c.startswith("ret_")]
+    bh_cols  = [c for c in merged.columns if c.startswith("bh_")]
+    pos_cols = [c for c in merged.columns if c.startswith("pos_")]
+    return pd.DataFrame(dict(
+        Date=merged["Date"],
+        ret=merged[ret_cols].mean(axis=1),
+        bh_ret=merged[bh_cols].mean(axis=1),
+        pos=merged[pos_cols].abs().sum(axis=1).clip(upper=1),  # any commodity short -> "in market"
+    ))
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # Runner
 # ══════════════════════════════════════════════════════════════════════════
 def main():
     all_rows = []
     bt_summaries = {}
+    data_by_sym = {}
     for sym in ["KC", "CC", "SB", "CT"]:
         d = load_commodity(sym)
+        data_by_sym[sym] = d
         print(f"\n{'='*70}\n{sym} - {len(d)} weeks, {d['Date'].min().date()} to {d['Date'].max().date()}\n{'='*70}")
 
         r1 = study1_extremity(d)
@@ -313,6 +440,26 @@ def main():
             print(f"    {label:28s}  weeks={s['weeks']:4d}  strat_ret={s['total_ret_pct']:+7.1f}%  "
                   f"b&h_ret={s['bh_total_ret_pct']:+7.1f}%  ann_sharpe={s['ann_sharpe']:+.2f}  "
                   f"max_dd={s['max_dd_pct']:6.1f}%  in_mkt={s['pct_weeks_in_market']:5.1f}%")
+
+    # ── Study 5b: loosened saturation filters, pooled across all 4 commodities ──
+    r5b = study5b_pooled_sweep(data_by_sym)
+    for r in r5b:
+        r["symbol"] = "POOLED(KC+CC+SB+CT)"
+    all_rows += r5b
+
+    print(f"\n\n{'='*70}\nSTUDY 5b - Spec Saturation Index, loosened + pooled sweep\n{'='*70}")
+    with pd.option_context("display.max_rows", None, "display.width", 160):
+        show5b = pd.DataFrame(r5b)[["leg", "bucket", "horizon", "n", "mean_diff_pct", "p"]].round(3)
+        print(show5b.to_string(index=False))
+
+    bt_pooled = pooled_saturation_backtest(data_by_sym, extremity=80, price_mode="bottom_third", hold=4)
+    stats_pooled = backtest_stats(bt_pooled)
+    print(f"\n  Pooled portfolio backtest (equal-weight KC/CC/SB/CT, short-only, "
+          f"pctl>=80 & dLong>0 & px=bottom_third, 4wk hold, {COST_BPS}bps cost, signal lagged 1wk):")
+    for label, s in stats_pooled.items():
+        print(f"    {label:28s}  weeks={s['weeks']:4d}  strat_ret={s['total_ret_pct']:+7.1f}%  "
+              f"b&h_ret={s['bh_total_ret_pct']:+7.1f}%  ann_sharpe={s['ann_sharpe']:+.2f}  "
+              f"max_dd={s['max_dd_pct']:6.1f}%  in_mkt={s['pct_weeks_in_market']:5.1f}%")
 
     df = pd.DataFrame(all_rows)
     df["p_bh"] = bh_correct(df["p"].tolist())
