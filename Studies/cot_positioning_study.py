@@ -10,6 +10,13 @@ positioning hypotheses, run independently of the dashboard.
                                          backtest with costs.
   Study 4  Crowding + low-vol squeeze — extreme positioning during a vol
                                          lull precedes larger forward moves.
+  Study 5  Spec Saturation Index      — gross Spec Long at a point-in-time
+                                         historical high, still adding this
+                                         week, but price doesn't confirm ->
+                                         buying exhaustion -> forced long
+                                         liquidation and a decline over the
+                                         following weeks. Also run as an
+                                         actual short-only backtest.
 
 Run:  python cot_positioning_study.py
 """
@@ -194,9 +201,7 @@ def backtest_stats(bt: pd.DataFrame, split_frac=0.7) -> dict:
 def study4_squeeze(d: pd.DataFrame, horizons=(1, 4, 8)) -> list:
     pctL = expanding_percentile(d["Spec Long"])
     pctS = expanding_percentile(d["Spec Short"])
-    with np.errstate(invalid="ignore"):
-        stacked = np.vstack([pctL, pctS])
-        crowding = np.where(np.all(np.isnan(stacked), axis=0), np.nan, np.nanmax(stacked, axis=0))
+    crowding = np.fmax(pctL, pctS)   # elementwise max, NaN only where BOTH are NaN (no warning)
 
     ret_1w = d["rollex_px"].pct_change() * 100
     vol8 = ret_1w.rolling(8, min_periods=8).std()
@@ -215,6 +220,65 @@ def study4_squeeze(d: pd.DataFrame, horizons=(1, 4, 8)) -> list:
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# Study 5 — Spec Saturation Index
+# Gross Spec Long at a point-in-time historical high, still getting fresh
+# buying THIS week (Delta Long > 0), but price fails to confirm (DeltaPx<=0).
+# Hypothesis: buying exhaustion / distribution -> forced long liquidation
+# and a disorderly decline over the following weeks.
+# ══════════════════════════════════════════════════════════════════════════
+def study5_saturation(d: pd.DataFrame, horizons=(1, 2, 4, 8), hold=4) -> tuple:
+    pctL   = expanding_percentile(d["Spec Long"])
+    dLong  = d["Spec Long"].diff().values
+    dPx    = (d["rollex_px"].pct_change() * 100).values
+
+    saturated = (pctL >= 90) & (dLong > 0) & (dPx <= 0)
+
+    rows = []
+    for h in horizons:
+        fwd = forward_return(d["rollex_px"], h)
+        diff, p, ci = block_bootstrap_pvalue(saturated, fwd)
+        rows.append(dict(study="S5", leg="saturation",
+                          bucket=f"pctl>=90 & dLong>0 & dPx<=0 (n={int(np.nansum(saturated))})",
+                          horizon=h, n=int(np.nansum(saturated)), mean_diff_pct=diff, p=p, ci=ci,
+                          note="target = fwd price return"))
+
+        # Mechanism check: does gross Spec Long actually FALL in the following
+        # weeks after a saturation signal, confirming the liquidation story
+        # (rather than just price falling for some unrelated reason)?
+        fwd_dlong = (d["Spec Long"].shift(-h).values - d["Spec Long"].values) / 1000.0
+        diff_l, p_l, ci_l = block_bootstrap_pvalue(saturated, fwd_dlong)
+        rows.append(dict(study="S5", leg="saturation_mechanism",
+                          bucket=f"pctl>=90 & dLong>0 & dPx<=0 (n={int(np.nansum(saturated))})",
+                          horizon=h, n=int(np.nansum(saturated)), mean_diff_pct=diff_l, p=p_l, ci=ci_l,
+                          note="target = fwd chg in gross Spec Long (k lots), NOT price"))
+
+    # ── Actual backtest: short for `hold` weeks after a saturation signal,
+    # flat otherwise. Entry is lagged 1 week (signal known Friday when COT
+    # prints, earliest trade is the following week), no pyramiding of an
+    # already-open short if a fresh signal fires mid-hold.
+    n = len(d)
+    pos = np.zeros(n)
+    trigger_idx = np.where(saturated)[0]
+    for i in trigger_idx:
+        entry = i + 1
+        if entry >= n:
+            continue
+        pos[entry: min(entry + hold, n)] = -1.0
+
+    px = d["rollex_px"].values
+    ret_1w = np.r_[np.nan, px[1:] / px[:-1] - 1.0]
+    ret_1w = np.nan_to_num(ret_1w)
+
+    strat_ret = pos * ret_1w
+    turned = np.r_[0, np.abs(np.diff(pos))]
+    cost = turned * (COST_BPS / 10000.0)
+    strat_ret_net = strat_ret - cost
+
+    bt = pd.DataFrame(dict(Date=d["Date"].values, ret=strat_ret_net, bh_ret=ret_1w, pos=pos))
+    return rows, bt
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # Runner
 # ══════════════════════════════════════════════════════════════════════════
 def main():
@@ -225,17 +289,27 @@ def main():
         print(f"\n{'='*70}\n{sym} - {len(d)} weeks, {d['Date'].min().date()} to {d['Date'].max().date()}\n{'='*70}")
 
         r1 = study1_extremity(d)
-        r2, bt = study2_divergence(d)
+        r2, bt2 = study2_divergence(d)
         r4 = study4_squeeze(d)
-        for r in r1 + r2 + r4:
+        r5, bt5 = study5_saturation(d)
+        for r in r1 + r2 + r4 + r5:
             r["symbol"] = sym
-        all_rows += r1 + r2 + r4
+        all_rows += r1 + r2 + r4 + r5
 
-        stats = backtest_stats(bt)
-        bt_summaries[sym] = stats
+        stats2 = backtest_stats(bt2)
+        stats5 = backtest_stats(bt5)
+        bt_summaries[sym] = dict(divergence=stats2, saturation=stats5)
+
         print(f"\n  Study 2 backtest ({sym}, long/flat/short on Comm-vs-Spec divergence, "
               f"{COST_BPS}bps cost, signal lagged 1wk):")
-        for label, s in stats.items():
+        for label, s in stats2.items():
+            print(f"    {label:28s}  weeks={s['weeks']:4d}  strat_ret={s['total_ret_pct']:+7.1f}%  "
+                  f"b&h_ret={s['bh_total_ret_pct']:+7.1f}%  ann_sharpe={s['ann_sharpe']:+.2f}  "
+                  f"max_dd={s['max_dd_pct']:6.1f}%  in_mkt={s['pct_weeks_in_market']:5.1f}%")
+
+        print(f"\n  Study 5 backtest ({sym}, short-only on Spec Saturation Index, "
+              f"4wk hold, {COST_BPS}bps cost, signal lagged 1wk):")
+        for label, s in stats5.items():
             print(f"    {label:28s}  weeks={s['weeks']:4d}  strat_ret={s['total_ret_pct']:+7.1f}%  "
                   f"b&h_ret={s['bh_total_ret_pct']:+7.1f}%  ann_sharpe={s['ann_sharpe']:+.2f}  "
                   f"max_dd={s['max_dd_pct']:6.1f}%  in_mkt={s['pct_weeks_in_market']:5.1f}%")
@@ -256,7 +330,7 @@ def main():
     if len(sig):
         print(sig[["symbol", "study", "bucket", "horizon", "mean_diff_pct", "p_bh"]].to_string(index=False))
     else:
-        print("None. On this data, none of Study 1 / 2 / 4 clear a false-discovery-corrected "
+        print("None. On this data, none of Study 1 / 2 / 4 / 5 clear a false-discovery-corrected "
               "bar - treat any single-test 'significant' row above as noise until it does.")
 
     out_path = Path(__file__).parent / "study_results.csv"
